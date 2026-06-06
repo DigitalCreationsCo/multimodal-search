@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SVS — Semantic Video Search</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Design Tokens ──────────────────────────────────────────── */
+    :root {
+      --bg-base:      #0a0a0c;
+      --bg-surface:   #111116;
+      --bg-elevated:  #18181f;
+      --bg-overlay:   #1e1e28;
+      --border:       #2a2a38;
+      --border-hi:    #3d3d52;
+      --amber:        #f59e0b;
+      --amber-dim:    #92600a;
+      --amber-glow:   rgba(245,158,11,0.12);
+      --green:        #22c55e;
+      --green-dim:    #166534;
+      --red:          #ef4444;
+      --blue:         #60a5fa;
+      --text-primary: #e8e8f0;
+      --text-secondary: #8888a8;
+      --text-muted:   #44445a;
+      --radius:       6px;
+      --radius-lg:    10px;
+      --font-display: 'Syne', sans-serif;
+      --font-mono:    'JetBrains Mono', monospace;
+      --transition:   160ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-display);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Grid noise texture overlay ─────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 48px 48px;
+      opacity: 0.18;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      height: 56px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,10,12,0.9);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+    }
+
+    .logo-mark {
+      width: 28px;
+      height: 28px;
+      background: var(--amber);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-mark svg { width: 16px; height: 16px; color: #000; }
+
+    .header-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 20px;
+    }
+
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ── Main layout ────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 0;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────── */
+    aside {
+      grid-row: 1 / 3;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      max-height: calc(100vh - 56px);
+      position: sticky;
+      top: 56px;
+    }
+
+    .sidebar-section {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── Ingest panel ────────────────────────────────────────────── */
+    .ingest-form { display: flex; flex-direction: column; gap: 8px; }
+
+    input[type="text"], input[type="url"] {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 8px 10px;
+      width: 100%;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      outline: none;
+    }
+    input::placeholder { color: var(--text-muted); }
+    input:focus {
+      border-color: var(--amber-dim);
+      box-shadow: 0 0 0 2px var(--amber-glow);
+    }
+
+    .btn {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: var(--amber);
+      color: #000;
+    }
+    .btn-primary:hover { background: #fbbf24; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { background: var(--amber-dim); cursor: not-allowed; transform: none; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--bg-elevated); border-color: var(--border-hi); color: var(--text-primary); }
+
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    /* ── Progress bar ────────────────────────────────────────────── */
+    .job-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .job-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 6px;
+    }
+    .job-status {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .progress-track {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--amber-dim), var(--amber));
+      border-radius: 2px;
+      transition: width 500ms ease;
+    }
+    .progress-fill.complete { background: var(--green); }
+
+    /* ── Video library ───────────────────────────────────────────── */
+    .video-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background var(--transition);
+      border: 1px solid transparent;
+    }
+    .video-item:hover { background: var(--bg-elevated); }
+    .video-item.active { background: var(--amber-glow); border-color: var(--amber-dim); }
+
+    .video-item-icon {
+      width: 28px; height: 28px;
+      background: var(--bg-overlay);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .video-item-icon svg { width: 12px; height: 12px; color: var(--amber); }
+
+    .video-item-info { min-width: 0; }
+    .video-item-name {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-primary);
+    }
+    .video-item-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* ── Search area (top right) ─────────────────────────────────── */
+    .search-bar-container {
+      padding: 20px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .search-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .search-input-wrap {
+      position: relative;
+      flex: 1;
+    }
+
+    .search-input {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius-lg);
+      color: var(--text-primary);
+      font-family: var(--font-display);
+      font-size: 15px;
+      padding: 12px 48px 12px 16px;
+      width: 100%;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      outline: none;
+    }
+    .search-input::placeholder { color: var(--text-muted); }
+    .search-input:focus {
+      border-color: var(--amber);
+      box-shadow: 0 0 0 3px var(--amber-glow);
+    }
+
+    .search-icon {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .mode-tabs {
+      display: flex;
+      gap: 4px;
+      margin-top: 10px;
+    }
+
+    .mode-tab {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .mode-tab:hover { border-color: var(--border-hi); color: var(--text-secondary); }
+    .mode-tab.active {
+      background: var(--amber-glow);
+      border-color: var(--amber-dim);
+      color: var(--amber);
+    }
+
+    /* ── Results area ────────────────────────────────────────────── */
+    .results-container {
+      padding: 24px 28px;
+      overflow-y: auto;
+    }
+
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .results-count {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px;
+    }
+
+    /* ── Result card ─────────────────────────────────────────────── */
+    .result-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      transition: border-color var(--transition), transform var(--transition), box-shadow var(--transition);
+      cursor: pointer;
+      animation: fadeInUp 200ms ease both;
+    }
+    .result-card:hover {
+      border-color: var(--border-hi);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-thumb {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: var(--bg-elevated);
+      position: relative;
+      overflow: hidden;
+    }
+    .result-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .result-thumb-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: repeating-linear-gradient(
+        -45deg,
+        var(--bg-elevated),
+        var(--bg-elevated) 8px,
+        var(--bg-overlay) 8px,
+        var(--bg-overlay) 16px
+      );
+    }
+    .result-thumb-placeholder svg { color: var(--text-muted); width: 32px; height: 32px; }
+
+    .result-timestamp {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.8);
+      color: var(--amber);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      padding: 2px 6px;
+      border-radius: 3px;
+      backdrop-filter: blur(4px);
+    }
+
+    .score-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.85);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      backdrop-filter: blur(4px);
+    }
+    .score-badge.high { color: var(--green); border-color: var(--green-dim); }
+
+    .result-body { padding: 12px 14px 14px; }
+
+    .result-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      line-height: 1.35;
+    }
+
+    .result-summary {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+      margin-bottom: 10px;
+    }
+
+    .result-transcript {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      background: var(--bg-elevated);
+      border-left: 2px solid var(--border-hi);
+      padding: 6px 8px;
+      border-radius: 0 3px 3px 0;
+      margin-bottom: 10px;
+      max-height: 60px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+
+    .result-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+
+    .tag {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .tag.mood-informative { border-color: var(--blue); color: var(--blue); }
+    .tag.mood-emotional    { border-color: #f87171; color: #f87171; }
+    .tag.mood-technical    { border-color: #a78bfa; color: #a78bfa; }
+    .tag.mood-action       { border-color: var(--amber); color: var(--amber); }
+    .tag.mood-ambient      { border-color: var(--green); color: var(--green); }
+
+    .result-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .result-video-name {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 60%;
+    }
+
+    .vector-badges {
+      display: flex;
+      gap: 3px;
+    }
+    .vbadge {
+      font-family: var(--font-mono);
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      padding: 1px 5px;
+      border-radius: 2px;
+      text-transform: uppercase;
+    }
+    .vbadge-video { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .vbadge-audio { background: rgba(34,197,94,0.15);  color: var(--green); }
+    .vbadge-meta  { background: rgba(167,139,250,0.15); color: #a78bfa; }
+
+    /* ── Empty + loading states ──────────────────────────────────── */
+    .state-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 40px;
+      text-align: center;
+      color: var(--text-muted);
+      gap: 12px;
+    }
+    .state-icon { color: var(--border-hi); }
+    .state-title { font-size: 16px; font-weight: 600; color: var(--text-secondary); }
+    .state-sub   { font-family: var(--font-mono); font-size: 12px; max-width: 320px; line-height: 1.6; }
+
+    .spinner {
+      width: 32px; height: 32px;
+      border: 2px solid var(--border);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 700ms linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast notification ──────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--bg-overlay);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius-lg);
+      padding: 12px 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-primary);
+      z-index: 9999;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      animation: slideIn 200ms ease;
+      max-width: 340px;
+    }
+    .toast.success { border-color: var(--green); }
+    .toast.error   { border-color: var(--red); }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(16px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ── HEADER ── -->
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <rect x="1" y="1" width="6" height="6" rx="1"/>
+          <rect x="9" y="1" width="6" height="6" rx="1"/>
+          <rect x="1" y="9" width="6" height="6" rx="1"/>
+          <rect x="9" y="9" width="6" height="6" rx="1"/>
+        </svg>
+      </div>
+      SVS
+    </div>
+    <div class="header-meta">
+      <span id="api-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text" style="font-size:10px">connecting…</span>
+      </span>
+      <span id="collection-stats" style="font-size:10px; color: var(--text-muted)">—</span>
+    </div>
+  </header>
+
+  <!-- ── MAIN ── -->
+  <main>
+
+    <!-- ── SIDEBAR ── -->
+    <aside>
+
+      <!-- Ingest panel -->
+      <div class="sidebar-section">
+        <div class="sidebar-label">Ingest Video</div>
+        <div class="ingest-form">
+          <input type="text" id="ingest-name" placeholder="Video name (optional)" />
+          <input type="url" id="ingest-url" placeholder="Paste video URL…" />
+          <button class="btn btn-primary btn-sm" id="ingest-btn" onclick="handleIngest()">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v10M3 7l5 5 5-5"/></svg>
+            Ingest
+          </button>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer; text-align:center; justify-content:center">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M2 12l3-3 3 3 5-7"/></svg>
+            Upload file
+            <input type="file" id="file-input" accept="video/*" style="display:none" onchange="handleFileUpload(this)" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Active jobs -->
+      <div class="sidebar-section" id="jobs-section" style="display:none">
+        <div class="sidebar-label">Active Jobs</div>
+        <div id="jobs-list"></div>
+      </div>
+
+      <!-- Video library -->
+      <div class="sidebar-section" style="flex:1">
+        <div class="sidebar-label" style="display:flex; align-items:center; justify-content:space-between">
+          Library
+          <button class="btn btn-ghost btn-sm" onclick="loadVideos()" title="Refresh" style="padding:2px 6px">↺</button>
+        </div>
+        <div id="video-list">
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">No videos indexed yet.</div>
+        </div>
+      </div>
+
+      <!-- Config hint -->
+      <div class="sidebar-section">
+        <div class="sidebar-label">API Endpoint</div>
+        <input type="text" id="api-url-input" value="http://localhost:8000" style="font-size:11px" onchange="API_BASE = this.value; checkHealth()" />
+      </div>
+    </aside>
+
+    <!-- ── CONTENT AREA ── -->
+    <div style="display:flex; flex-direction:column; overflow:hidden">
+
+      <!-- Search bar -->
+      <div class="search-bar-container">
+        <div class="search-row">
+          <div class="search-input-wrap">
+            <input
+              type="text"
+              class="search-input"
+              id="search-input"
+              placeholder='Try "someone explaining neural networks" or "outdoor scene with nature sounds"…'
+              onkeydown="if(event.key==='Enter') handleSearch()"
+            />
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <button class="btn btn-primary" onclick="handleSearch()" id="search-btn">Search</button>
+        </div>
+
+        <div class="mode-tabs">
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-right:4px;line-height:24px">Mode:</span>
+          <button class="mode-tab active" data-mode="auto"    onclick="setMode(this)">Auto</button>
+          <button class="mode-tab"        data-mode="visual"  onclick="setMode(this)">Visual</button>
+          <button class="mode-tab"        data-mode="speech"  onclick="setMode(this)">Speech</button>
+          <button class="mode-tab"        data-mode="topic"   onclick="setMode(this)">Topic</button>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="results-container" id="results-container">
+        <div class="state-container" id="empty-state">
+          <svg class="state-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+          <div class="state-title">No videos yet</div>
+          <div class="state-sub">Ingest a video using the panel on the left, then search across it with natural language.</div>
+        </div>
+        <div id="results-area"></div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   State & Config
+═══════════════════════════════════════════════════════════════ */
+let API_BASE = 'http://localhost:8000';
+let activeMode = 'auto';
+let activeVideoFilter = null;
+let jobs = {};         // job_id → job data
+let pollingTimers = {}; // job_id → interval
+
+/* ═══════════════════════════════════════════════════════════════
+   API helpers
+═══════════════════════════════════════════════════════════════ */
+async function api(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Health & Stats
+═══════════════════════════════════════════════════════════════ */
+async function checkHealth() {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  try {
+    await api('/health');
+    dot.classList.add('live');
+    txt.textContent = 'Connected';
+    const stats = await api('/stats');
+    document.getElementById('collection-stats').textContent =
+      `${stats.vectors_count ?? 0} vectors · ${stats.status}`;
+    loadVideos();
+  } catch {
+    dot.classList.remove('live');
+    txt.textContent = 'API offline';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Video Library
+═══════════════════════════════════════════════════════════════ */
+async function loadVideos() {
+  try {
+    const videos = await api('/videos');
+    renderVideoList(videos);
+  } catch { /* silently fail — API may be starting up */ }
+}
+
+function renderVideoList(videos) {
+  const el = document.getElementById('video-list');
+  const emptyState = document.getElementById('empty-state');
+
+  if (!videos.length) {
+    el.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">No videos indexed yet.</div>';
+    emptyState.style.display = 'flex';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+
+  el.innerHTML = videos.map(v => `
+    <div class="video-item ${activeVideoFilter === v.video_id ? 'active' : ''}"
+         onclick="setVideoFilter('${v.video_id}', '${v.video_name.replace(/'/g,"\\'")}')">
+      <div class="video-item-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+      </div>
+      <div class="video-item-info">
+        <div class="video-item-name" title="${escHtml(v.video_name)}">${escHtml(v.video_name)}</div>
+        <div class="video-item-meta">${v.segment_count} scenes · ${fmtDuration(v.total_duration)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function setVideoFilter(videoId, name) {
+  if (activeVideoFilter === videoId) {
+    activeVideoFilter = null;
+    showToast('Searching all videos');
+  } else {
+    activeVideoFilter = videoId;
+    showToast(`Filtered to: ${name}`);
+  }
+  loadVideos();
+  if (document.getElementById('search-input').value.trim()) handleSearch();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Ingest
+═══════════════════════════════════════════════════════════════ */
+async function handleIngest() {
+  const url = document.getElementById('ingest-url').value.trim();
+  const name = document.getElementById('ingest-name').value.trim();
+  if (!url) { showToast('Paste a video URL first', 'error'); return; }
+
+  const btn = document.getElementById('ingest-btn');
+  btn.disabled = true; btn.textContent = 'Starting…';
+
+  try {
+    const { job_id, video_name } = await api('/ingest/url', {
+      method: 'POST',
+      body: JSON.stringify({ url, name: name || undefined }),
+    });
+
+    document.getElementById('ingest-url').value = '';
+    document.getElementById('ingest-name').value = '';
+    startJobPolling(job_id, video_name);
+    showToast(`Ingesting "${video_name}"`, 'success');
+  } catch (e) {
+    showToast(`Ingest failed: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v10M3 7l5 5 5-5"/></svg> Ingest`;
+  }
+}
+
+async function handleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch(`${API_BASE}/ingest/file`, { method: 'POST', body: formData });
+    if (!res.ok) throw new Error(await res.text());
+    const { job_id, video_name } = await res.json();
+    startJobPolling(job_id, video_name);
+    showToast(`Ingesting "${video_name}"`, 'success');
+  } catch (e) {
+    showToast(`Upload failed: ${e.message}`, 'error');
+  }
+  input.value = '';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Job Polling
+═══════════════════════════════════════════════════════════════ */
+function startJobPolling(jobId, name) {
+  jobs[jobId] = { job_id: jobId, video_name: name, status: 'queued', progress: 0 };
+  renderJobs();
+
+  pollingTimers[jobId] = setInterval(async () => {
+    try {
+      const job = await api(`/ingest/${jobId}`);
+      jobs[jobId] = job;
+      renderJobs();
+
+      if (job.status === 'complete') {
+        clearInterval(pollingTimers[jobId]);
+        showToast(`✓ "${job.video_name}" indexed — ${job.segment_count} scenes`, 'success');
+        loadVideos();
+        checkHealth();
+        setTimeout(() => { delete jobs[jobId]; renderJobs(); }, 6000);
+      } else if (job.status === 'failed') {
+        clearInterval(pollingTimers[jobId]);
+        showToast(`✗ Ingest failed: ${job.error}`, 'error');
+        setTimeout(() => { delete jobs[jobId]; renderJobs(); }, 8000);
+      }
+    } catch { /* keep polling */ }
+  }, 2500);
+}
+
+function renderJobs() {
+  const section = document.getElementById('jobs-section');
+  const list = document.getElementById('jobs-list');
+  const activeJobs = Object.values(jobs);
+
+  if (!activeJobs.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  list.innerHTML = activeJobs.map(job => {
+    const isComplete = job.status === 'complete';
+    const isFailed = job.status === 'failed';
+    return `
+      <div class="job-card">
+        <div class="job-name">${escHtml(job.video_name || 'Video')}</div>
+        <div class="job-status">${job.status.replace(/_/g,' ')} · ${job.progress ?? 0}%</div>
+        <div class="progress-track">
+          <div class="progress-fill ${isComplete ? 'complete' : ''}"
+               style="width:${job.progress ?? 0}%; background:${isFailed ? 'var(--red)' : ''}"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Search
+═══════════════════════════════════════════════════════════════ */
+async function handleSearch() {
+  const query = document.getElementById('search-input').value.trim();
+  if (!query) return;
+
+  const btn = document.getElementById('search-btn');
+  const area = document.getElementById('results-area');
+
+  btn.disabled = true; btn.textContent = 'Searching…';
+  area.innerHTML = `
+    <div class="state-container">
+      <div class="spinner"></div>
+      <div class="state-sub" style="font-family:var(--font-mono);font-size:11px">
+        Routing intent · embedding query · searching ${activeVideoFilter ? 'selected video' : 'all videos'}
+      </div>
+    </div>`;
+
+  try {
+    const results = await api('/search', {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        limit: 12,
+        mode: activeMode,
+        video_id: activeVideoFilter || undefined,
+      }),
+    });
+    renderResults(results, query);
+  } catch (e) {
+    area.innerHTML = `<div class="state-container"><div class="state-sub" style="color:var(--red)">${e.message}</div></div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Search';
+  }
+}
+
+function renderResults(results, query) {
+  const area = document.getElementById('results-area');
+  const emptyState = document.getElementById('empty-state');
+  emptyState.style.display = 'none';
+
+  if (!results.length) {
+    area.innerHTML = `
+      <div class="state-container">
+        <svg class="state-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <div class="state-title">No results</div>
+        <div class="state-sub">Try different keywords, or switch to a different search mode.</div>
+      </div>`;
+    return;
+  }
+
+  const header = `
+    <div class="results-header">
+      <span class="results-count">${results.length} segment${results.length !== 1 ? 's' : ''} · mode: ${activeMode}</span>
+      <span class="results-count">"${escHtml(query)}"</span>
+    </div>`;
+
+  const cards = results.map((r, i) => {
+    const scoreClass = r.weighted_score > 0.7 ? 'high' : '';
+    const moodClass  = `mood-${r.mood || 'ambient'}`;
+    const hasThumb   = r.thumbnail_url;
+
+    const thumb = hasThumb
+      ? `<img src="${API_BASE}${r.thumbnail_url}" alt="${escHtml(r.title)}" onerror="this.parentNode.innerHTML='<div class=result-thumb-placeholder>${videoIcon()}</div>'" />`
+      : `<div class="result-thumb-placeholder">${videoIcon()}</div>`;
+
+    const vBadges = (r.contributing_vectors || []).map(v =>
+      `<span class="vbadge vbadge-${v}">${v.slice(0,3)}</span>`
+    ).join('');
+
+    const keywords = (r.keywords || []).slice(0, 4).map(k =>
+      `<span class="tag">${escHtml(k)}</span>`
+    ).join('');
+
+    return `
+      <div class="result-card" style="animation-delay:${i * 40}ms"
+           onclick="copyTimestamp('${r.video_id}', ${r.start_time})">
+        <div class="result-thumb">
+          ${thumb}
+          <span class="result-timestamp">${fmtTime(r.start_time)} – ${fmtTime(r.end_time)}</span>
+          <span class="score-badge ${scoreClass}">${(r.weighted_score * 100).toFixed(0)}%</span>
+        </div>
+        <div class="result-body">
+          <div class="result-title">${escHtml(r.title || 'Untitled Scene')}</div>
+          <div class="result-summary">${escHtml(r.summary || '')}</div>
+          ${r.transcript ? `<div class="result-transcript">${escHtml(r.transcript)}</div>` : ''}
+          ${keywords ? `<div class="result-tags">${keywords}${r.mood ? `<span class="tag ${moodClass}">${r.mood}</span>` : ''}</div>` : ''}
+          <div class="result-meta">
+            <span class="result-video-name" title="${escHtml(r.video_name)}">${escHtml(r.video_name)}</span>
+            <div class="vector-badges">${vBadges}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  area.innerHTML = header + `<div class="results-grid">${cards}</div>`;
+}
+
+function videoIcon() {
+  return `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Utilities
+═══════════════════════════════════════════════════════════════ */
+function setMode(btn) {
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  activeMode = btn.dataset.mode;
+}
+
+function copyTimestamp(videoId, startTime) {
+  const ts = `video_id:${videoId} @ ${fmtTime(startTime)}`;
+  navigator.clipboard?.writeText(ts).then(() => showToast(`Copied: ${ts}`));
+}
+
+function fmtTime(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function fmtDuration(s) {
+  if (!s) return '—';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let toastTimer;
+function showToast(msg, type = 'info') {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  clearTimeout(toastTimer);
+
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  toastTimer = setTimeout(() => t.remove(), 4000);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Init
+═══════════════════════════════════════════════════════════════ */
+checkHealth();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
