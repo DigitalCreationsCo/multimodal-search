@@ -18,14 +18,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Optional
 
 import httpx
-
 from config import settings
-from pipeline.chunker import chunk_video
-from pipeline.embed import embed_metadata, embed_transcript, embed_video_chunk
-from pipeline.metadata_enricher import enrich_segment, metadata_to_embed_string
+from storage.vector_store import VideoVectorStore
+
+from pipeline.chunker import chunk_content
+from pipeline.embed import embed_chunk, embed_metadata, embed_transcript
+from pipeline.generate_metadata import generate_metadata, metadata_to_embed_string
 from pipeline.scene_detect import detect_scenes
 from pipeline.transcribe import transcribe
-from storage.vector_store import VideoVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ def _update_job(job_id: str, **kwargs) -> None:
 
 # ── Download helper ───────────────────────────────────────────────────────────
 
+
 def _download_video(url: str, dest_path: str) -> None:
     """Download a video from *url* to *dest_path* with streaming."""
     logger.info("Downloading video from %s", url)
@@ -57,6 +58,7 @@ def _download_video(url: str, dest_path: str) -> None:
 
 
 # ── Per-chunk worker ──────────────────────────────────────────────────────────
+
 
 def _process_chunk(chunk: dict, video_id: str, video_name: str) -> dict:
     """
@@ -80,13 +82,13 @@ def _process_chunk(chunk: dict, video_id: str, video_name: str) -> dict:
     transcript = transcribe(chunk["audio_path"])
 
     # Step 2: metadata enrichment
-    metadata = enrich_segment(transcript, start, end, idx)
-    meta_string = metadata_to_embed_string(metadata)
+    metadata = generate_metadata(transcript, start, end, idx)
+    metadata_string = metadata_to_embed_string(metadata)
 
     # Step 3: embeddings (video takes longest — do first while text embeds run)
-    video_vec = embed_video_chunk(chunk["video_path"])
+    video_vec = embed_chunk(chunk["video_path"])
     audio_vec = embed_transcript(transcript)
-    meta_vec = embed_metadata(meta_string)
+    meta_vec = embed_metadata(metadata_string)
 
     return {
         "video_id": video_id,
@@ -108,6 +110,7 @@ def _process_chunk(chunk: dict, video_id: str, video_name: str) -> dict:
 
 
 # ── Main ingest function ──────────────────────────────────────────────────────
+
 
 def run_ingest(
     job_id: str,
@@ -137,7 +140,7 @@ def run_ingest(
 
         # 2. Chunking
         _update_job(job_id, status="chunking", progress=20)
-        chunks = chunk_video(video_path, scenes, job_id)
+        chunks = chunk_content(video_path, scenes, job_id)
         _update_job(job_id, progress=30)
 
         # 3. Per-chunk processing (parallel)
@@ -177,7 +180,9 @@ def run_ingest(
             video_id=video_id,
             completed_at=time.time(),
         )
-        logger.info("Ingest complete: %d segments indexed for %s", len(results), video_name)
+        logger.info(
+            "Ingest complete: %d segments indexed for %s", len(results), video_name
+        )
 
     except Exception as exc:
         logger.error("Ingest failed for job %s: %s", job_id, exc, exc_info=True)

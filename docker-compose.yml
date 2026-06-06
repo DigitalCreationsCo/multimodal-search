@@ -1,34 +1,125 @@
 version: "3.9"
 
+# ── Semantic Video Search — full stack ──────────────────────────────────────
+#
+# Services:
+#   opensearch           — vector + text search engine   (ports 9200, 9600)
+#   opensearch-dashboards — data exploration UI           (port  5601)
+#   api                  — FastAPI + FFmpeg + Gemini      (port  8000)
+#
+# Start everything:
+#   docker compose up --build
+#
+# OpenSearch Dashboards:   http://localhost:5601  (admin / <your password>)
+# FastAPI docs:            http://localhost:8000/docs
+# Your custom search UI:   open frontend/index.html in browser
+#
+# NOTE: OpenSearch takes 45-60 s to initialise on first boot.
+#       The api service will wait via depends_on: condition: service_healthy.
+# ────────────────────────────────────────────────────────────────────────────
+
 services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: svs_qdrant
-    ports:
-      - "6333:6333"   # REST + Web UI
-      - "6334:6334"   # gRPC
-    volumes:
-      - qdrant_data:/qdrant/storage
+
+  opensearch:
+    image: opensearchproject/opensearch:3.3.2
+    container_name: svs_opensearch
     environment:
-      QDRANT__SERVICE__GRPC_PORT: 6334
+      # Single-node mode — no cluster discovery overhead
+      - discovery.type=single-node
+      # Must contain uppercase + lowercase + digit + special char (OpenSearch 2.x+)
+      # Change this and mirror it in api + dashboards environments below
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-OpenSearch123!}
+      # JVM heap — keep Xms == Xmx to avoid heap resizing pauses.
+      # 1 g is the minimum for stable operation; use 2-4 g in production.
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"   # REST API + HTTPS
+      - "9600:9600"   # Performance Analyzer
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - svs_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 10s
-      timeout: 5s
+      # -k skips cert verification for the self-signed cert OpenSearch ships with
+      test:
+        - "CMD-SHELL"
+        - >
+          curl -sk -u admin:${OPENSEARCH_PASSWORD:-OpenSearch123!}
+          https://localhost:9200/_cluster/health
+          | grep -qE '"status":"(green|yellow)"'
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s   # OpenSearch needs ~45 s on cold boot
+
+  # ── OpenSearch Dashboards ──────────────────────────────────────────────────
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.3.0
+    container_name: svs_dashboards
+    environment:
+      # Uses Docker internal DNS — dashboards → opensearch container
+      - OPENSEARCH_HOSTS=["https://opensearch:9200"]
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-OpenSearch123!}
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - svs_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 20s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
-  # Uncomment to containerize the backend too
-  # api:
-  #   build: ./backend
-  #   ports:
-  #     - "8000:8000"
-  #   env_file: .env
-  #   depends_on:
-  #     qdrant:
-  #       condition: service_healthy
-  #   volumes:
-  #     - /tmp/video_chunks:/tmp/video_chunks
+  # ── FastAPI backend (FFmpeg + scenedetect + Gemini) ────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: svs_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env          # Loads GOOGLE_API_KEY and all tunable settings
+    environment:
+      # OpenSearch connection — internal Docker DNS, not localhost
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_USER: admin
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-OpenSearch123!}
+      # Skip TLS cert verification for OpenSearch's self-signed cert
+      # Set to "true" and mount a real cert in production
+      OPENSEARCH_VERIFY_CERTS: "false"
+      TEMP_DIR: /tmp/svs_chunks
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    volumes:
+      # Chunks and thumbnails persist across restarts
+      - chunks_vol:/tmp/svs_chunks
+    networks:
+      - svs_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
+# ── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  svs_net:
+    # bridge = correct for standalone `docker compose up` on a single machine
+    # overlay = Docker Swarm only (multi-node) — do not use here
+    driver: bridge
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
-  qdrant_data:
+  opensearch_data:    # OpenSearch index — persists across restarts
+  chunks_vol:         # Video chunks & thumbnails — persists across restarts

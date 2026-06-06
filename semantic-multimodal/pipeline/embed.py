@@ -21,28 +21,14 @@ API notes (Gemini Embedding 2, as of March 2026):
   - Pricing: ~$0.004 / 1K chars (significantly cheaper than alternatives)
 """
 
-import base64
 import logging
 import pathlib
 import time
-from typing import List, Optional
+from typing import List
 
-from google import genai
-from google.genai import types
-
-from config import settings
+from config import Client, get_client, settings, types
 
 logger = logging.getLogger(__name__)
-
-# Module-level client — initialised once
-_client: Optional[genai.Client] = None
-
-
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=settings.google_api_key)
-    return _client
 
 
 def _embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
@@ -56,7 +42,7 @@ def _embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]
         # Return a zero vector for empty transcripts
         return [0.0] * settings.embedding_dim
 
-    client = _get_client()
+    client = get_client()
 
     response = client.models.embed_content(
         model=settings.gemini_embedding_model,
@@ -69,7 +55,7 @@ def _embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]
     return list(response.embeddings[0].values)
 
 
-def _embed_video(video_path: str) -> List[float]:
+def _embed_content(video_path: str) -> List[float]:
     """
     Embed a video chunk using Gemini Embedding 2 via the Files API.
 
@@ -80,7 +66,7 @@ def _embed_video(video_path: str) -> List[float]:
     Returns:
         List of floats (length = settings.embedding_dim).
     """
-    client = _get_client()
+    client = get_client()
     video_path_obj = pathlib.Path(video_path)
 
     if not video_path_obj.exists():
@@ -130,7 +116,7 @@ def _embed_video(video_path: str) -> List[float]:
                 pass  # Non-critical cleanup failure
 
 
-def _wait_for_file_active(client: genai.Client, file_name: str, timeout: int = 60) -> None:
+def _wait_for_file_active(client: Client, file_name: str, timeout: int = 60) -> None:
     """Poll until the uploaded file is ACTIVE (processed by Google)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -146,14 +132,15 @@ def _wait_for_file_active(client: genai.Client, file_name: str, timeout: int = 6
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def embed_video_chunk(video_path: str) -> List[float]:
+
+def embed_chunk(path: str) -> List[float]:
     """Embed raw video bytes → captures visual + audio scene content."""
-    logger.debug("Embedding video: %s", video_path)
-    return _embed_video(video_path)
+    logger.debug("Embedding : %s", path)
+    return _embed_content(path)
 
 
 def embed_transcript(transcript: str) -> List[float]:
-    """Embed Whisper transcript → captures speech semantics."""
+    """Embed transcript → captures speech semantics."""
     logger.debug("Embedding transcript (%d chars)", len(transcript))
     return _embed_text(transcript, task_type="RETRIEVAL_DOCUMENT")
 

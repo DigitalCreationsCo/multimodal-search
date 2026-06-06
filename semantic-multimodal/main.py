@@ -16,15 +16,14 @@ import logging
 import os
 import time
 import uuid
-from typing import List, Literal, Optional
+from typing import List
 
 import structlog
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from config import settings
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, HttpUrl
-
-from config import settings
+from models import IngestURLRequest, SearchRequest, SearchResult
 from pipeline.embed import embed_query
 from pipeline.ingest import get_job, start_ingest_from_file, start_ingest_from_url
 from storage.vector_store import VideoVectorStore
@@ -58,48 +57,39 @@ app.add_middleware(
 os.makedirs(settings.temp_dir, exist_ok=True)
 app.mount("/thumbnails", StaticFiles(directory=settings.temp_dir), name="thumbnails")
 
-# ── Pydantic Models ───────────────────────────────────────────────────────────
-
-
-class IngestURLRequest(BaseModel):
-    url: str
-    name: Optional[str] = None
-
-
-class SearchRequest(BaseModel):
-    query: str
-    limit: int = 10
-    mode: Literal["auto", "visual", "speech", "topic"] = "auto"
-    video_id: Optional[str] = None
-    score_threshold: float = 0.25
-
-
-class SearchResult(BaseModel):
-    video_id: str
-    video_name: str
-    chunk_index: int
-    start_time: float
-    end_time: float
-    duration: float
-    title: str
-    summary: str
-    transcript: str
-    keywords: List[str]
-    mood: str
-    weighted_score: float
-    contributing_vectors: List[str]
-    thumbnail_url: Optional[str] = None
-
 
 # ── Intent Router ─────────────────────────────────────────────────────────────
 
 _SPEECH_SIGNALS = [
-    "say", "said", "says", "talk", "spoke", "mentioned", "explains",
-    "narrate", "voice", "audio", "words", "hear", "dialogue", "quote",
+    "say",
+    "said",
+    "says",
+    "talk",
+    "spoke",
+    "mentioned",
+    "explains",
+    "narrate",
+    "voice",
+    "audio",
+    "words",
+    "hear",
+    "dialogue",
+    "quote",
 ]
 _VISUAL_SIGNALS = [
-    "show", "see", "look", "appear", "scene", "visual", "footage",
-    "clip", "frame", "watch", "display", "screen", "view",
+    "show",
+    "see",
+    "look",
+    "appear",
+    "scene",
+    "visual",
+    "footage",
+    "clip",
+    "frame",
+    "watch",
+    "display",
+    "screen",
+    "view",
 ]
 
 
@@ -199,7 +189,9 @@ def search(req: SearchRequest):
     query_vec = embed_query(req.query)
     weights = _route_intent(req.query, req.mode)
 
-    logger.info("Search: '%s' | mode=%s | weights=%s", req.query[:60], req.mode, weights)
+    logger.info(
+        "Search: '%s' | mode=%s | weights=%s", req.query[:60], req.mode, weights
+    )
 
     store = VideoVectorStore()
     raw = store.multi_vector_search(

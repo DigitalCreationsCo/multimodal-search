@@ -6,7 +6,6 @@ Each chunk preserves both the video and audio streams so the
 Gemini Embedding 2 model receives the full multimodal signal.
 """
 
-import asyncio
 import logging
 import os
 import subprocess
@@ -25,13 +24,13 @@ def _run_ffmpeg(cmd: List[str]) -> None:
 
 
 def extract_chunk(
-    video_path: str,
+    path: str,
     output_path: str,
     start: float,
     end: float,
 ) -> str:
     """
-    Extract a video segment from *start* to *end* seconds.
+    Extract a content segment from *start* to *end* seconds.
 
     Uses stream-copy (-c copy) when possible for speed.
     Falls back to re-encode if the chunk would be unplayable
@@ -42,12 +41,18 @@ def extract_chunk(
     """
     duration = end - start
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start),
-        "-i", video_path,
-        "-t", str(duration),
-        "-c", "copy",          # no re-encode for speed
-        "-avoid_negative_ts", "1",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start),
+        "-i",
+        video_path,
+        "-t",
+        str(duration),
+        "-c",
+        "copy",  # no re-encode for speed
+        "-avoid_negative_ts",
+        "1",
         output_path,
     ]
     try:
@@ -56,12 +61,24 @@ def extract_chunk(
         # Re-encode fallback — slower but always works
         logger.warning("Stream-copy failed, re-encoding chunk %s", output_path)
         cmd_enc = [
-            "ffmpeg", "-y",
-            "-ss", str(start),
-            "-i", video_path,
-            "-t", str(duration),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-i",
+            path,
+            "-t",
+            str(duration),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
             output_path,
         ]
         _run_ffmpeg(cmd_enc)
@@ -70,7 +87,7 @@ def extract_chunk(
 
 
 def extract_thumbnail(
-    video_path: str,
+    path: str,
     output_path: str,
     timestamp: float,
     width: int = 320,
@@ -82,11 +99,16 @@ def extract_thumbnail(
         Path to the thumbnail file.
     """
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(timestamp),
-        "-i", video_path,
-        "-vframes", "1",
-        "-vf", f"scale={width}:-1",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(timestamp),
+        "-i",
+        path,
+        "-vframes",
+        "1",
+        "-vf",
+        f"scale={width}:-1",
         output_path,
     ]
     _run_ffmpeg(cmd)
@@ -108,34 +130,32 @@ def extract_audio(
     """
     duration = end - start
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start),
-        "-i", video_path,
-        "-t", str(duration),
-        "-vn",                 # drop video stream
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",        # Whisper expects 16 kHz
-        "-ac", "1",            # mono
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start),
+        "-i",
+        video_path,
+        "-t",
+        str(duration),
+        "-vn",  # drop video stream
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",  # Whisper expects 16 kHz
+        "-ac",
+        "1",  # mono
         output_path,
     ]
     _run_ffmpeg(cmd)
     return output_path
 
 
-def chunk_video(
-    video_path: str,
+def chunk_content(
+    path: str,
     scenes: List[Tuple[float, float]],
     job_id: str,
 ) -> List[dict]:
-    """
-    For every scene boundary, produce:
-      - A video chunk (.mp4)
-      - An audio track (.wav) for Whisper
-      - A thumbnail (.jpg) for the UI
-
-    Returns:
-        List of dicts with paths and timing metadata.
-    """
     job_dir = os.path.join(settings.temp_dir, job_id)
     os.makedirs(job_dir, exist_ok=True)
 
@@ -143,23 +163,25 @@ def chunk_video(
     for idx, (start, end) in enumerate(scenes):
         prefix = os.path.join(job_dir, f"chunk_{idx:04d}")
 
-        video_chunk = extract_chunk(video_path, f"{prefix}.mp4", start, end)
-        audio_chunk = extract_audio(video_path, f"{prefix}.wav", start, end)
+        video_chunk = extract_chunk(path, f"{prefix}.mp4", start, end)
+        audio_chunk = extract_audio(path, f"{prefix}.wav", start, end)
         thumbnail = extract_thumbnail(
-            video_path,
+            path,
             f"{prefix}.jpg",
             timestamp=start + (end - start) / 2,  # mid-scene frame
         )
 
-        chunks.append({
-            "chunk_index": idx,
-            "start_time": start,
-            "end_time": end,
-            "duration": end - start,
-            "video_path": video_chunk,
-            "audio_path": audio_chunk,
-            "thumbnail_path": thumbnail,
-        })
+        chunks.append(
+            {
+                "chunk_index": idx,
+                "start_time": start,
+                "end_time": end,
+                "duration": end - start,
+                "video_path": video_chunk,
+                "audio_path": audio_chunk,
+                "thumbnail_path": thumbnail,
+            }
+        )
 
         logger.debug("Extracted chunk %d: %.1f–%.1f s", idx, start, end)
 
