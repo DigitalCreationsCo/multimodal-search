@@ -40,7 +40,7 @@ def _embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]
     """
     if not text or not text.strip():
         # Return a zero vector for empty transcripts
-        return [0.0] * settings.embedding_dim
+        return [0.0] * settings.embedding_dimension
 
     client = get_client()
 
@@ -49,7 +49,7 @@ def _embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]
         contents=text,
         config=types.EmbedContentConfig(
             task_type=task_type,
-            output_dimensionality=settings.embedding_dim,
+            output_dimensionality=settings.embedding_dimension,
         ),
     )
     return list(response.embeddings[0].values)
@@ -71,7 +71,7 @@ def _embed_content(video_path: str) -> List[float]:
 
     if not video_path_obj.exists():
         logger.warning("Video chunk not found: %s", video_path)
-        return [0.0] * settings.embedding_dim
+        return [0.0] * settings.embedding_dimension
 
     uploaded_file = None
     try:
@@ -98,14 +98,14 @@ def _embed_content(video_path: str) -> List[float]:
             ),
             config=types.EmbedContentConfig(
                 task_type="RETRIEVAL_DOCUMENT",
-                output_dimensionality=settings.embedding_dim,
+                output_dimensionality=settings.embedding_dimension,
             ),
         )
         return list(response.embeddings[0].values)
 
     except Exception as exc:
         logger.warning("Video embedding failed for %s: %s", video_path, exc)
-        return [0.0] * settings.embedding_dim
+        return [0.0] * settings.embedding_dimension
 
     finally:
         # Always clean up the uploaded file

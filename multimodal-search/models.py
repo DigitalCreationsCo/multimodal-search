@@ -13,6 +13,7 @@ class SearchRequest(BaseModel):
     limit: int = 10
     mode: Literal["auto", "visual", "speech", "topic"] = "auto"
     video_id: Optional[str] = None
+    index_name: str
     score_threshold: float = 0.25
 
 
@@ -40,6 +41,7 @@ class SegmentMetadata(BaseModel):
     thumbnailURL: str
     summary: str
     title: str
+    contentType: str
 
 
 class EmbeddingSegment(BaseModel):
@@ -64,17 +66,19 @@ class Embeddings(BaseModel):
 
 
 class ContentMetadata(BaseModel):
+    fileName: str
     title: str
     summary: str
     keywords: List[str]
     mood: str
     has_speech: bool
     confidence: float
+    uri: str
 
 
 class OpenSearchDocument(BaseModel):
+    uri: str
     fileName: str
-    content_path: str
     dateCreated: str
     contentType: str
     sizeBytes: int

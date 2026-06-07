@@ -1,9 +1,9 @@
 """
 pipeline/ingest.py
 
-Orchestrates the full ingest pipeline for a single video:
+Orchestrates the full ingest pipeline for a single file:
 
-  detect_scenes → chunk_video → [transcribe | embed_video | enrich] → upsert
+  detect_scenes → chunk_content → [transcribe | embed_chunk | enrich] → upsert
 
 Chunk-level work runs concurrently up to MAX_PARALLEL_CHUNKS.
 Job state is held in-memory (replace with Redis/DB for multi-process deploys).
@@ -19,7 +19,6 @@ from typing import Any, Dict, Optional
 
 import httpx
 from config import settings
-from storage.vector_store import VideoVectorStore
 
 from pipeline.chunker import chunk_content
 from pipeline.embed import embed_chunk, embed_metadata, embed_transcript
@@ -46,8 +45,8 @@ def _update_job(job_id: str, **kwargs) -> None:
 # ── Download helper ───────────────────────────────────────────────────────────
 
 
-def _download_video(url: str, dest_path: str) -> None:
-    """Download a video from *url* to *dest_path* with streaming."""
+def _download_content(url: str, dest_path: str) -> None:
+    """Download source content from *url* to *dest_path* with streaming."""
     logger.info("Downloading video from %s", url)
     with httpx.stream("GET", url, follow_redirects=True, timeout=300) as r:
         r.raise_for_status()
@@ -60,14 +59,14 @@ def _download_video(url: str, dest_path: str) -> None:
 # ── Per-chunk worker ──────────────────────────────────────────────────────────
 
 
-def _process_chunk(chunk: dict, video_id: str, video_name: str) -> dict:
+def _process_chunk(chunk: dict, content_id: str, file_name: str) -> dict:
     """
-    Process a single video chunk synchronously (runs in a thread pool).
+    Process a single chunk synchronously (runs in a thread pool).
 
     Steps:
       1. Transcribe audio → text
       2. Enrich metadata via Gemini Flash
-      3. Embed video chunk, transcript, metadata (3 separate vectors)
+      3. Embed content chunk, transcript, metadata (3 separate vectors)
 
     Returns:
         A dict ready for vector_store.upsert_segment().
@@ -86,25 +85,25 @@ def _process_chunk(chunk: dict, video_id: str, video_name: str) -> dict:
     metadata_string = metadata_to_embed_string(metadata)
 
     # Step 3: embeddings (video takes longest — do first while text embeds run)
-    video_vec = embed_chunk(chunk["video_path"])
+    video_vec = embed_chunk(chunk["content_path"])
     audio_vec = embed_transcript(transcript)
-    meta_vec = embed_metadata(metadata_string)
+    text_vec = embed_metadata(metadata_string)
 
     return {
-        "video_id": video_id,
-        "video_name": video_name,
+        "content_id": content_id,
+        "file_name": file_name,
         "chunk_index": idx,
         "start_time": start,
         "end_time": end,
         "transcript": transcript,
-        "title": metadata.get("title", ""),
-        "summary": metadata.get("summary", ""),
-        "keywords": metadata.get("keywords", []),
-        "mood": metadata.get("mood", ""),
-        "has_speech": metadata.get("has_speech", False),
+        "title": metadata.title,
+        "summary": metadata.summary,
+        "keywords": metadata.keywords,
+        "mood": metadata.mood,
+        "has_speech": metadata.has_speech,
         "video_embedding": video_vec,
         "audio_embedding": audio_vec,
-        "meta_embedding": meta_vec,
+        "text_embedding": text_vec,
         "thumbnail_path": chunk.get("thumbnail_path", ""),
     }
 
@@ -114,33 +113,32 @@ def _process_chunk(chunk: dict, video_id: str, video_name: str) -> dict:
 
 def run_ingest(
     job_id: str,
-    video_path: str,
-    video_name: str,
+    content_path: str,
+    file_name: str,
     cleanup: bool = True,
 ) -> None:
     """
-    Full ingest pipeline for a local video file.
+    Full ingest pipeline for a local file.
     Designed to run in a background thread.
 
     Args:
         job_id:      UUID string for tracking this job.
-        video_path:  Path to the local video file.
-        video_name:  Human-readable name to store with segments.
+        content_path:  Path to the local file.
+        file_name:  Human-readable name to store with segments.
         cleanup:     If True, delete temp chunks after indexing.
     """
-    video_id = job_id  # video_id == job_id for simplicity
-    store = VideoVectorStore()
+    content_id = job_id  # video_id == job_id for simplicity
 
     try:
         _update_job(job_id, status="detecting_scenes", progress=5)
 
         # 1. Scene detection
-        scenes = detect_scenes(video_path)
+        scenes = detect_scenes(content_path)
         _update_job(job_id, scene_count=len(scenes), progress=15)
 
         # 2. Chunking
         _update_job(job_id, status="chunking", progress=20)
-        chunks = chunk_content(video_path, scenes, job_id)
+        chunks = chunk_content(content_path, scenes, job_id)
         _update_job(job_id, progress=30)
 
         # 3. Per-chunk processing (parallel)
@@ -150,7 +148,7 @@ def run_ingest(
 
         with ThreadPoolExecutor(max_workers=settings.max_parallel_chunks) as pool:
             futures = {
-                pool.submit(_process_chunk, chunk, video_id, video_name): chunk
+                pool.submit(_process_chunk, chunk, content_id, file_name): chunk
                 for chunk in chunks
             }
             for future in as_completed(futures):
@@ -177,11 +175,11 @@ def run_ingest(
             status="complete",
             progress=100,
             segment_count=len(results),
-            video_id=video_id,
+            content_id=content_id,
             completed_at=time.time(),
         )
         logger.info(
-            "Ingest complete: %d segments indexed for %s", len(results), video_name
+            "Ingest complete: %d segments indexed for %s", len(results), file_name
         )
 
     except Exception as exc:
@@ -193,25 +191,25 @@ def run_ingest(
             job_dir = os.path.join(settings.temp_dir, job_id)
             if os.path.isdir(job_dir):
                 shutil.rmtree(job_dir, ignore_errors=True)
-            # Remove downloaded video if it's in the temp dir
-            if video_path.startswith(settings.temp_dir):
+            # Remove downloaded file if it's in the temp dir
+            if content_path.startswith(settings.temp_dir):
                 try:
-                    os.remove(video_path)
+                    os.remove(content_path)
                 except OSError:
                     pass
 
 
 def start_ingest_from_url(url: str, name: str) -> str:
     """
-    Download a video from *url* and kick off the ingest pipeline.
+    Download a file from *url* and kick off the ingest pipeline.
     Returns a job_id immediately (non-blocking).
     """
     job_id = str(uuid.uuid4())
-    video_path = os.path.join(settings.temp_dir, f"{job_id}_source.mp4")
+    temp_path = os.path.join(settings.temp_dir, f"{job_id}_source.mp4")
 
     _jobs[job_id] = {
         "job_id": job_id,
-        "video_name": name,
+        "file_name": name,
         "source_url": url,
         "status": "downloading",
         "progress": 0,
@@ -220,8 +218,8 @@ def start_ingest_from_url(url: str, name: str) -> str:
 
     def _run():
         try:
-            _download_video(url, video_path)
-            run_ingest(job_id, video_path, name, cleanup=True)
+            _download_content(url, temp_path)
+            run_ingest(job_id, temp_path, name, cleanup=True)
         except Exception as exc:
             _update_job(job_id, status="failed", error=str(exc))
 
@@ -239,7 +237,7 @@ def start_ingest_from_file(file_path: str, name: str) -> str:
 
     _jobs[job_id] = {
         "job_id": job_id,
-        "video_name": name,
+        "file_name": name,
         "status": "queued",
         "progress": 0,
         "created_at": time.time(),

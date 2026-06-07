@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     search_meta_weight: float = 0.20
 
     # ── File System ────────────────────────────────────────────────────────
+    local_storage_base_directory: str = "."
     content_directory: str = "content"
     embeddings_directory: str = "embeddings"
     metadata_directory: str = "metadata"

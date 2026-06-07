@@ -1,5 +1,5 @@
 from config import settings
-from opensearchpy import OpenSearch
+from opensearch import Client as OpenSearch
 
 client = OpenSearch(hosts=[{"host": "localhost", "port": 9200}])
 index_name = "semantic-multimodal"

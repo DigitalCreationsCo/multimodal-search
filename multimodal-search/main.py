@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from models import IngestURLRequest, SearchRequest, SearchResult
 from pipeline.embed import embed_query
 from pipeline.ingest import get_job, start_ingest_from_file, start_ingest_from_url
-from storage.vector_store import VideoVectorStore
+from search.search import OpenSearch, multimodal_search
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -135,8 +135,8 @@ def health():
 
 @app.get("/stats")
 def stats():
-    store = VideoVectorStore()
-    return store.collection_stats()
+    # TODO: return stats from opensearch
+    return None
 
 
 @app.post("/ingest/url")
@@ -186,6 +186,7 @@ def search(req: SearchRequest):
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
     # Embed query
+    top_k = int(req.limit)
     query_vec = embed_query(req.query)
     weights = _route_intent(req.query, req.mode)
 
@@ -193,46 +194,18 @@ def search(req: SearchRequest):
         "Search: '%s' | mode=%s | weights=%s", req.query[:60], req.mode, weights
     )
 
-    store = VideoVectorStore()
-    raw = store.multi_vector_search(
-        video_vector=query_vec if weights.get("video", 0) > 0 else None,
-        audio_vector=query_vec if weights.get("audio", 0) > 0 else None,
-        meta_vector=query_vec if weights.get("meta", 0) > 0 else None,
-        weights=weights,
-        limit=req.limit,
-        score_threshold=req.score_threshold,
-        video_id_filter=req.video_id,
+    client = OpenSearch()
+    search_results = multimodal_search(
+        client=client,
+        index_name=req.index_name,
+        query_embedding=query_vec,
+        video_embedding_weight=weights.get("video_embedding_weight", 0),
+        audio_embedding_weight=weights.get("audio_embedding_weight", 0),
+        text_embedding_weight=weights.get("text_embedding_weight", 0),
+        top_k=top_k,
     )
 
-    results = []
-    for r in raw:
-        thumbnail_url = None
-        thumb_path = r.get("thumbnail_path", "")
-        if thumb_path and os.path.exists(thumb_path):
-            # Expose thumbnail via static file server
-            rel = os.path.relpath(thumb_path, settings.temp_dir)
-            thumbnail_url = f"/thumbnails/{rel}"
-
-        results.append(
-            SearchResult(
-                video_id=r.get("video_id", ""),
-                video_name=r.get("video_name", ""),
-                chunk_index=r.get("chunk_index", 0),
-                start_time=r.get("start_time", 0.0),
-                end_time=r.get("end_time", 0.0),
-                duration=r.get("duration", 0.0),
-                title=r.get("title", ""),
-                summary=r.get("summary", ""),
-                transcript=r.get("transcript", ""),
-                keywords=r.get("keywords", []),
-                mood=r.get("mood", ""),
-                weighted_score=round(r.get("weighted_score", 0.0), 4),
-                contributing_vectors=r.get("contributing_vectors", []),
-                thumbnail_url=thumbnail_url,
-            )
-        )
-
-    return results
+    return search_results
 
 
 @app.get("/videos")

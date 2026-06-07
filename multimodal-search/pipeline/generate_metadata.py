@@ -71,6 +71,8 @@ def _safe_parse_json(text: str) -> dict:
 
 def generate_metadata(
     transcript: str,
+    file_name: str,
+    content_path: str,
     start_time: float,
     end_time: float,
     chunk_index: int,
@@ -131,6 +133,8 @@ def generate_metadata(
                     mood="ambient",
                     has_speech=bool(transcript),
                     confidence=0.2,
+                    fileName=file_name,
+                    uri=content_path,
                 ).model_dump()
 
                 # Normalise types
