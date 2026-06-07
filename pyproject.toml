@@ -11,29 +11,25 @@ dependencies = [
     "python-multipart==0.0.12",
     "httpx==0.28.1",
     "aiofiles==24.1.0",
-
     # Google AI for Embeddings, Transcription, & Metadata
     "google-genai==1.5.0",
-
     # Vector DB
     "qdrant-client==1.12.1",
-
     # Scene detection & video processing
     "scenedetect[opencv]==0.6.4",
     "opencv-python-headless==4.10.0.84",
-
     # Config & utilities
     "pydantic-settings==2.6.1",
     "python-dotenv==1.0.1",
     "structlog==24.4.0",
-
     # Progress / async helpers
     "tqdm==4.67.0",
     "anyio>=4.8.0",
+    "opensearch>=0.9.2",
 ]
 
 [project.optional-dependencies]
 
 s3 = [
-    boto3
+    "boto3"
 ]

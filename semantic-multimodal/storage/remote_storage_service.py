@@ -1,6 +1,12 @@
+import json
 import logging
 from pathlib import Path
+from typing import Any, Dict
 from urllib.parse import urlparse
+
+import boto3
+from botocore.exceptions import ClientError
+from config import settings
 
 from storage import StorageService
 
@@ -13,6 +19,7 @@ class RemoteObjectProvider(StorageService):
     def __init__(self, bucket_name: str, staging_dir: Path):
         self.bucket_name = bucket_name
         self.staging_dir = staging_dir
+        self.s3_client = boto3.client("s3")
 
         try:
             self.staging_dir.mkdir(parents=True, exist_ok=True)
@@ -38,11 +45,11 @@ class RemoteObjectProvider(StorageService):
             f"[Remote] Downloading s3://{self.bucket_name}/{object_key} -> {staging_path}"
         )
 
-        # TODO: Implement actual boto3 download logic here.
-        # Stubbing the download for demonstration:
         try:
-            with open(staging_path, "w") as f:
-                f.write("mock video content")
+            self.s3_client.download_file(
+                self.bucket_name, object_key, str(staging_path)
+            )
+            return staging_path
             logger.debug("[Remote] Download complete.")
         except Exception as e:
             logger.error(f"[Remote] Download failed for {uri}: {e}")
@@ -50,19 +57,31 @@ class RemoteObjectProvider(StorageService):
 
         return staging_path
 
-    def write_metadata(self, job_id: str, payload: dict) -> None:
-        object_key = f"analyses/{job_id}.json"
-        logger.info(
-            f"[Remote] Uploading metadata for job {job_id} to s3://{self.bucket_name}/{object_key}"
-        )
-        # TODO: Implement actual boto3 upload logic here
+    def fetch_metadata(self, job_id: str) -> Dict[str, Any]:
+        logger.info(f"[Remote] Fetching metadata for job: {job_id}")
+        return self._fetch_json(f"{settings.metadata_directory}/{job_id}.json")
 
-    def write_embeddings(self, job_id: str, payload: dict) -> None:
-        object_key = f"embeddings/{job_id}.json"
-        logger.info(
-            f"[Remote] Uploading embeddings for job {job_id} to s3://{self.bucket_name}/{object_key}"
-        )
-        # TODO: Implement actual boto3 upload logic here
+    def write_metadata(self, job_id: str, payload: Dict[str, Any]) -> None:
+        logger.info(f"[Remote] Writing metadata for job: {job_id}")
+        self._write_json(f"{settings.metadata_directory}/{job_id}.json", payload)
+
+    def fetch_embeddings(self, job_id: str) -> Dict[str, Any]:
+        logger.info(f"[Remote] Fetching embeddings for job: {job_id}")
+        return self._fetch_json(f"{settings.embeddings_directory}/{job_id}.json")
+
+    def write_embeddings(self, job_id: str, payload: Dict[str, Any]) -> None:
+        logger.info(f"[Remote] Writing embeddings for job: {job_id}")
+        self._write_json(f"{settings.embeddings_directory}/{job_id}.json", payload)
+
+    def fetch_documents(self, doc_id: str) -> Dict[str, Any]:
+        """Fetches raw documents/transcripts."""
+        logger.info(f"[Remote] Fetching document: {doc_id}")
+        return self._fetch_json(f"{settings.documents_directory}/{doc_id}.json")
+
+    def write_documents(self, doc_id: str, payload: Dict[str, Any]) -> None:
+        """Writes raw documents/transcripts."""
+        logger.info(f"[Remote] Writing document: {doc_id}")
+        self._write_json(f"{settings.documents_directory}/{doc_id}.json", payload)
 
     def cleanup_staging(self, uri: str) -> None:
         logger.info(f"[Remote] Cleaning up staged file for URI: {uri}")
@@ -82,3 +101,22 @@ class RemoteObjectProvider(StorageService):
                 )
         except Exception as e:
             logger.error(f"[Remote] Failed to clean up staged file {staging_path}: {e}")
+
+    def _fetch_json(self, key: str) -> Dict[str, Any]:
+        """Fetches and decodes JSON from S3."""
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+            return json.loads(response["Body"].read().decode("utf-8"))
+        except ClientError as e:
+            logger.error(f"[Remote] Failed to fetch JSON from {key}: {e}")
+            raise
+
+    def _write_json(self, key: str, data: Dict[str, Any]) -> None:
+        """Serializes and uploads JSON to S3."""
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket_name, Key=key, Body=json.dumps(data, indent=2)
+            )
+        except ClientError as e:
+            logger.error(f"[Remote] Failed to write JSON to {key}: {e}")
+            raise

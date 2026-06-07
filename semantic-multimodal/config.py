@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     google_api_key: str
     gemini_embedding_model: str = "gemini-embedding-2"
     gemini_flash_model: str = "gemini-2.0-flash-lite"
-    embedding_dim: int = 1024
+    embedding_dimension: int = 1024
 
     # ── Qdrant ─────────────────────────────────────────────────────
     qdrant_url: str = "http://localhost:6333"
