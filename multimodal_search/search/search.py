@@ -30,6 +30,7 @@ import logging
 from typing import Dict, List, Optional
 
 from multimodal_search.models import DocumentListItem, OpenSearchDocument, SegmentSearchResult
+from multimodal_search.search.indexer import Indexer
 from opensearchpy import OpenSearch
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,9 @@ def multimodal_search(
     Returns:
         List of SegmentSearchResult, sorted by weighted score descending.
     """
+    # Resolve read alias so queries always hit the live index
+    effective_index = Indexer(client, index_name).resolve_read_index()
+
     # Build optional document filter
     doc_filter = None
     if document_id:
@@ -105,7 +109,7 @@ def multimodal_search(
 
         hits = _nested_knn_search(
             client=client,
-            index_name=index_name,
+            index_name=effective_index,
             field_path=field_path,
             query_vector=query_embedding,
             k=top_k * 3,  # fetch more for better fusion coverage
@@ -252,6 +256,8 @@ def list_documents(client: OpenSearch, index_name: str) -> List[DocumentListItem
     Return one summary record per indexed document.
     Uses a scroll or aggregation-style query — no embeddings returned.
     """
+    effective_index = Indexer(client, index_name).resolve_read_index()
+
     query_body = {
         "size": 1000,
         "query": {"match_all": {}},
@@ -261,7 +267,7 @@ def list_documents(client: OpenSearch, index_name: str) -> List[DocumentListItem
     }
 
     try:
-        response = client.search(index=index_name, body=query_body)
+        response = client.search(index=effective_index, body=query_body)
     except Exception as exc:
         logger.error("Failed to list documents: %s", exc)
         return []
@@ -291,12 +297,13 @@ def list_documents(client: OpenSearch, index_name: str) -> List[DocumentListItem
 def _count_segments(client: OpenSearch, index_name: str, document_id: str) -> int:
     """Return the number of segments in a specific document."""
     try:
+        effective_index = Indexer(client, index_name).resolve_read_index()
         body = {
             "size": 1,
             "query": {"term": {"documentId": document_id}},
             "_source": ["segments.segmentIndex"],
         }
-        r = client.search(index=index_name, body=body)
+        r = client.search(index=effective_index, body=body)
         hits = r.get("hits", {}).get("hits", [])
         if hits:
             segs = hits[0].get("_source", {}).get("segments", [])

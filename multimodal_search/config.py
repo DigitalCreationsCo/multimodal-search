@@ -35,10 +35,16 @@ class Settings(BaseSettings):
     gemini_flash_model: str = "gemini-2.0-flash-lite"
     embedding_dimension: int = 1024
 
-    # ── Qdrant ─────────────────────────────────────────────────────
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: Optional[str] = None
-    collection_name: str = "video_segments"
+    # ── OpenSearch ──────────────────────────────────────────────────
+    index_name: str = "multimodal_search"
+    opensearch_host: str
+    opensearch_port: int
+    opensearch_user: str
+    opensearch_password: str
+    opensearch_use_ssl: bool
+    opensearch_verify_certs: bool
+    index_number_of_shards: int = 1
+    index_number_of_replicas: int = 0
 
     # ── Scene Detection ────────────────────────────────────────────
     scene_threshold: float = 27.0

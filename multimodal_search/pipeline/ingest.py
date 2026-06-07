@@ -12,11 +12,12 @@ Job state is held in-memory (replace with Redis/DB for multi-process deploys).
 import logging
 import os
 import shutil
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from multimodal_search.config import settings
@@ -26,21 +27,39 @@ from multimodal_search.pipeline.embed import embed_chunk, embed_metadata, embed_
 from multimodal_search.pipeline.generate_metadata import generate_metadata, metadata_to_embed_string
 from multimodal_search.pipeline.scene_detect import detect_scenes
 from multimodal_search.pipeline.transcribe import transcribe
+from multimodal_search.search.indexer import Indexer, build_document_from_results
+from multimodal_search.search.search import get_opensearch_client
+from multimodal_search.storage.storage_router import StorageRouter
 
 logger = logging.getLogger(__name__)
 
 # ── In-memory job store ───────────────────────────────────────────────────────
 # Replace with Redis / Postgres for horizontal scaling
 _jobs: Dict[str, Dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
 
 
 def get_job(job_id: str) -> Optional[Dict]:
-    return _jobs.get(job_id)
+    with _jobs_lock:
+        return _jobs.get(job_id)
+
+
+def create_job(job_id: str, **kwargs) -> None:
+    """Register a new job. Thread-safe."""
+    with _jobs_lock:
+        _jobs[job_id] = {"job_id": job_id, **kwargs}
+
+
+def update_job(job_id: str, **kwargs) -> None:
+    """Update fields on an existing job. Thread-safe."""
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id].update(kwargs)
 
 
 def _update_job(job_id: str, **kwargs) -> None:
-    if job_id in _jobs:
-        _jobs[job_id].update(kwargs)
+    """Internal alias for update_job."""
+    update_job(job_id, **kwargs)
 
 
 # ── Download helper ───────────────────────────────────────────────────────────
@@ -166,10 +185,47 @@ def run_ingest(
                     progress = 35 + int((completed / len(chunks)) * 55)
                     _update_job(job_id, progress=progress)
 
-        # 4. Upsert to Qdrant
+        # 4. Persist artifacts, build document, index to OpenSearch
         _update_job(job_id, status="indexing", progress=92)
-        for seg in sorted(results, key=lambda s: s["chunk_index"]):
-            store.upsert_segment(seg)
+
+        storage = StorageRouter.get_storage()
+        sorted_segs = sorted(results, key=lambda s: s["chunk_index"])
+
+        # Persist per-segment metadata and embeddings for archival/reference
+        all_metadata: Dict[str, Dict[str, Any]] = {}
+        all_embeddings: Dict[str, Dict[str, Any]] = {}
+        for seg in sorted_segs:
+            idx = seg["chunk_index"]
+            all_metadata[f"segment_{idx}"] = {
+                "title": seg["title"],
+                "summary": seg["summary"],
+                "keywords": seg["keywords"],
+                "mood": seg["mood"],
+                "has_speech": seg["has_speech"],
+                "transcript": seg["transcript"],
+            }
+            all_embeddings[f"segment_{idx}"] = {
+                "video": seg["video_embedding"],
+                "audio": seg["audio_embedding"],
+                "text": seg["text_embedding"],
+            }
+        storage.write_metadata(content_id, all_metadata)
+        storage.write_embeddings(content_id, all_embeddings)
+
+        # Build and persist the full OpenSearch document JSON
+        doc = build_document_from_results(
+            content_id, file_name, content_path, sorted_segs, storage,
+        )
+        storage.write_documents(content_id, doc)
+
+        # Index to OpenSearch
+        client = get_opensearch_client()
+        indexer = Indexer(client, settings.index_name)
+        result = indexer.index_document(doc)
+        if not result.succeeded:
+            logger.error(
+                "Failed to index document %s: %s", content_id, result.error
+            )
 
         _update_job(
             job_id,
@@ -210,14 +266,14 @@ def start_ingest_from_url(url: str, name: str) -> str:
     content_dir.mkdir(parents=True, exist_ok=True)
     content_path = str(content_dir / f"{job_id}_source.mp4")
 
-    _jobs[job_id] = {
-        "job_id": job_id,
-        "file_name": name,
-        "source_url": url,
-        "status": "downloading",
-        "progress": 0,
-        "created_at": time.time(),
-    }
+    create_job(
+        job_id,
+        file_name=name,
+        source_url=url,
+        status="downloading",
+        progress=0,
+        created_at=time.time(),
+    )
 
     def _run():
         try:
@@ -238,13 +294,13 @@ def start_ingest_from_file(file_path: str, name: str) -> str:
     """
     job_id = str(uuid.uuid4())
 
-    _jobs[job_id] = {
-        "job_id": job_id,
-        "file_name": name,
-        "status": "queued",
-        "progress": 0,
-        "created_at": time.time(),
-    }
+    create_job(
+        job_id,
+        file_name=name,
+        status="queued",
+        progress=0,
+        created_at=time.time(),
+    )
 
     thread_pool = ThreadPoolExecutor(max_workers=1)
     thread_pool.submit(run_ingest, job_id, file_path, name, False)

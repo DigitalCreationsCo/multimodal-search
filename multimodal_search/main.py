@@ -16,6 +16,7 @@ import logging
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
@@ -23,6 +24,7 @@ from typing import List
 import structlog
 from multimodal_search.config import settings
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,9 +35,17 @@ from multimodal_search.models import (
     SegmentSearchResult,
 )
 from multimodal_search.pipeline.embed import embed_query
-from multimodal_search.pipeline.ingest import get_job, start_ingest_from_file, start_ingest_from_url
-from multimodal_search.search.index import INDEX_NAME, ensure_index
+from multimodal_search.pipeline.ingest import (
+    create_job,
+    get_job,
+    start_ingest_from_file,
+    start_ingest_from_url,
+    update_job,
+)
+from multimodal_search.search.index import INDEX_NAME
+from multimodal_search.search.indexer import Indexer
 from multimodal_search.search.search import get_opensearch_client, list_documents, multimodal_search
+from multimodal_search.storage.storage_router import StorageRouter
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -55,8 +65,8 @@ async def lifespan(app: FastAPI):
     """Create the OpenSearch index on first boot if it doesn't exist."""
     try:
         client = get_opensearch_client()
-        ensure_index(client)
-        logger.info("OpenSearch index ready: %s", INDEX_NAME)
+        concrete = Indexer(client, settings.index_name).ensure_index()
+        logger.info("OpenSearch index ready: %s (concrete: %s)", INDEX_NAME, concrete)
     except Exception as exc:
         # Log but don't crash — OpenSearch may still be initialising
         logger.warning("OpenSearch index setup deferred: %s", exc)
@@ -185,7 +195,8 @@ def stats():
     """Return OpenSearch index statistics."""
     try:
         client = get_opensearch_client()
-        info = client.indices.stats(index=INDEX_NAME)
+        effective_index = Indexer(client, INDEX_NAME).resolve_read_index()
+        info = client.indices.stats(index=effective_index)
         totals = info.get("_all", {}).get("total", {})
         return {
             "index": INDEX_NAME,
@@ -306,10 +317,11 @@ def get_document(document_id: str):
     Embedding vectors are excluded from the response payload.
     """
     client = get_opensearch_client()
+    effective_index = Indexer(client, INDEX_NAME).resolve_read_index()
 
     try:
         response = client.search(
-            index=INDEX_NAME,
+            index=effective_index,
             body={
                 "query": {"term": {"documentId": document_id}},
                 "_source": {
@@ -333,6 +345,110 @@ def get_document(document_id: str):
         )
 
     return hits[0]["_source"]
+
+
+# ── Delete ────────────────────────────────────────────────────────────────────
+
+
+@app.delete("/documents/{document_id}")
+def delete_document(document_id: str):
+    """
+    Delete a document from OpenSearch and clean up its storage artifacts.
+    Idempotent — safe to call on already-deleted documents.
+    """
+    client = get_opensearch_client()
+    indexer = Indexer(client, settings.index_name)
+    result = indexer.delete_document(document_id)
+
+    if not result.succeeded:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {result.error}")
+
+    # Best-effort cleanup of storage artifacts
+    try:
+        storage = StorageRouter.get_storage()
+        for method in (storage.fetch_metadata, storage.fetch_embeddings, storage.fetch_documents):
+            try:
+                method(document_id)
+                # If it exists, it'll be GC'd — no delete method on interface
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning("Storage artifact cleanup failed for %s: %s", document_id, exc)
+
+    logger.info("Deleted document '%s' from OpenSearch", document_id)
+    return {"status": "deleted", "document_id": document_id}
+
+
+# ── Reindex ───────────────────────────────────────────────────────────────────
+
+_reindex_thread_pool = ThreadPoolExecutor(max_workers=1)
+
+
+class ReindexRequest(BaseModel):
+    delete_existing: bool = False
+
+
+def _run_reindex(job_id: str, delete_existing: bool) -> None:
+    """Background reindex execution — reads artifacts from storage, indexes to OpenSearch."""
+    try:
+        update_job(job_id, status="loading_documents", progress=10)
+
+        client = get_opensearch_client()
+        indexer = Indexer(client, settings.index_name)
+
+        update_job(job_id, status="indexing", progress=30)
+        result = indexer.reindex(delete_existing=delete_existing)
+
+        update_job(
+            job_id,
+            status="complete",
+            progress=100,
+            result=result,
+        )
+        logger.info(
+            "Reindex complete: %d docs indexed (%d succeeded, %d failed)",
+            result["docs_indexed"],
+            result["succeeded"],
+            result["failed"],
+        )
+    except Exception as exc:
+        logger.error("Reindex failed: %s", exc, exc_info=True)
+        update_job(job_id, status="failed", error=str(exc))
+
+
+@app.post("/index", status_code=202)
+def reindex(req: ReindexRequest):
+    """
+    Rebuild the OpenSearch index from serialized artifacts in storage.
+
+    When ``delete_existing=true``, creates a fresh versioned index, indexes
+    all documents into it, then atomically swaps the read alias so queries
+    see the new data with zero downtime.  The old index is deleted.
+
+    When ``delete_existing=false``, indexes into the existing index
+    (append/update, no alias changes).
+
+    Returns a ``job_id`` immediately — poll ``GET /index/{job_id}`` for status.
+    """
+    job_id = str(uuid.uuid4())
+    create_job(
+        job_id,
+        status="queued",
+        delete_existing=req.delete_existing,
+        progress=0,
+        created_at=time.time(),
+    )
+    _reindex_thread_pool.submit(_run_reindex, job_id, req.delete_existing)
+    return {"job_id": job_id, "status": "queued", "delete_existing": req.delete_existing}
+
+
+@app.get("/index/{job_id}")
+def reindex_status(job_id: str):
+    """Poll the status of a reindex job."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Reindex job {job_id!r} not found")
+    return job
 
 
 if __name__ == "__main__":

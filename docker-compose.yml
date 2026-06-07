@@ -16,8 +16,8 @@ version: "3.9"
 
 services:
   opensearch:
-    image: opensearchproject/opensearch:3.3.2
     container_name: opensearch
+    image: opensearchproject/opensearch:3.3.2
     environment:
       # Single-node mode — no cluster discovery overhead
       - discovery.type=single-node
@@ -50,8 +50,8 @@ services:
 
   # ── OpenSearch Dashboards ──────────────────────────────────────────────────
   opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:3.3.0
     container_name: dashboards
+    image: opensearchproject/opensearch-dashboards:3.3.0
     environment:
       # Uses Docker internal DNS — dashboards → opensearch container
       - OPENSEARCH_HOSTS=["https://opensearch:9200"]
@@ -78,21 +78,23 @@ services:
 
   # ── FastAPI backend (FFmpeg + scenedetect + Gemini) ────────────────────────
   api:
+    container_name: multimodal_search
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: multimodal_search
     ports:
       - "8000:8000"
     env_file:
       - .env # Loads GOOGLE_API_KEY and all tunable settings
     environment:
       # OpenSearch connection — internal Docker DNS, not localhost
-      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-OpenSearch123!}
       # Skip TLS cert verification for OpenSearch's self-signed cert
       # Set to "true" and mount a real cert in production
+      OPENSEARCH_USE_SSL: "true"
       OPENSEARCH_VERIFY_CERTS: "false"
       TEMP_DIR: /tmp/ms_chunks
     depends_on:

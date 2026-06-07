@@ -1,32 +1,31 @@
 """
 search/index.py
 
-OpenSearch index definition for the multimodal search system.
+OpenSearch index mapping definition.
 
-Key differences from the previous version:
-  1. nmslib engine removed — nmslib was deprecated in OpenSearch 2.x and is
-     unavailable in OpenSearch 3.x. Using `faiss` instead.
-  2. Segments are a proper `nested` type. This is required to store per-segment
-     embeddings inside a single document and query them with inner_hits.
-  3. Text fields (title, summary, transcript, keywords) are explicitly mapped
-     so OpenSearch builds BM25 inverted indexes over them. This enables
-     hybrid (vector + keyword) queries — the primary reason to use OpenSearch
-     over a pure vector store like Qdrant.
-  4. The embedding vector fields live under `segments.*` and are excluded from
-     the returned `_source` by default in queries — returned vectors are large
-     and wasteful in API responses.
-  5. Document-level fields use `keyword` for exact/filter matches and `text`
-     for full-text search where appropriate.
+Every other concern (alias management, index lifecycle, document writes)
+lives in ``indexer.py``.  This module owns only:
+  1. The constant ``INDEX_NAME``.
+  2. The mapping builder ``get_index_body()`` (used by ``Indexer``).
+
+Key mapping decisions:
+  - ``segments`` is a ``nested`` type so we can store per-segment
+    embeddings and retrieve them via ``inner_hits``.
+  - Text fields (title, summary, transcript, keywords) get BM25 inverted
+    indexes for hybrid (vector + keyword) search.
+  - Three ``knn_vector`` fields per segment (video, audio, text) so the
+    intent router can weight them independently at query time.
+  - Embedding vectors are excluded from ``_source`` by default in queries
+    because they are large and wasteful in API responses.
 """
 
 import logging
 
 from multimodal_search.config import settings
-from opensearchpy import OpenSearch
 
 logger = logging.getLogger(__name__)
 
-INDEX_NAME = settings.collection_name  # default: "multimodal_search"
+INDEX_NAME = settings.index_name  # default: "multimodal_search"
 
 
 def get_index_body(embedding_dimension: int) -> dict:
@@ -143,27 +142,3 @@ def get_index_body(embedding_dimension: int) -> dict:
         },
     }
 
-
-def ensure_index(client: OpenSearch) -> None:
-    """
-    Create the index if it doesn't exist. Safe to call on every startup.
-    """
-    if client.indices.exists(index=INDEX_NAME):
-        logger.info("Index '%s' already exists — skipping creation", INDEX_NAME)
-        return
-
-    body = get_index_body(settings.embedding_dimension)
-    client.indices.create(index=INDEX_NAME, body=body)
-    logger.info(
-        "Created index '%s' (dim=%d, engine=faiss)",
-        INDEX_NAME,
-        settings.embedding_dimension,
-    )
-
-
-def drop_index(client: OpenSearch) -> None:
-    """Destroy and recreate the index. Wipes all data — use carefully."""
-    if client.indices.exists(index=INDEX_NAME):
-        client.indices.delete(index=INDEX_NAME)
-        logger.warning("Deleted index '%s'", INDEX_NAME)
-    ensure_index(client)

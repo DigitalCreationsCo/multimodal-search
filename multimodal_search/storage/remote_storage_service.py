@@ -50,13 +50,11 @@ class RemoteStorageService(StorageService):
             self.s3_client.download_file(
                 self.bucket_name, object_key, str(staging_path)
             )
-            return staging_path
             logger.debug("[Remote] Download complete.")
+            return staging_path
         except Exception as e:
             logger.error(f"[Remote] Download failed for {uri}: {e}")
             raise
-
-        return staging_path
 
     def fetch_metadata(self, job_id: str) -> Dict[str, Any]:
         logger.info(f"[Remote] Fetching metadata for job: {job_id}")
