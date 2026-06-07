@@ -23,7 +23,7 @@ import logging
 import pathlib
 import time
 
-from config import get_client, settings
+from multimodal_search.config import get_client, settings
 
 logger = logging.getLogger(__name__)
 

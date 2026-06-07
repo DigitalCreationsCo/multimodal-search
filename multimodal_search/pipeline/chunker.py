@@ -11,8 +11,8 @@ import os
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
-from config import settings
-from utilities import Utilities
+from multimodal_search.config import settings
+from multimodal_search.utilities import Utilities
 
 logger = logging.getLogger(__name__)
 

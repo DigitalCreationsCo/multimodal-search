@@ -1,6 +1,6 @@
 # Semantic Video & Audio Search — Production Prototype
 
-A cost-effective, production-ready semantic video search system. Every service — including FFmpeg — runs in Docker with a single command.
+A cost-effective, production-ready semantic multimedia search system. Every service — including FFmpeg — runs in Docker with a single command.
 
 | Component | Technology | Notes |
 |-----------|-----------|-------|
@@ -80,8 +80,8 @@ This starts two containers:
 
 | Container | Port | Purpose |
 |-----------|------|---------|
-| `svs_qdrant` | 6333 | Qdrant REST API + dashboard |
-| `svs_api` | 8000 | FastAPI backend (includes FFmpeg) |
+| `ms_qdrant` | 6333 | Qdrant REST API + dashboard |
+| `ms_api` | 8000 | FastAPI backend (includes FFmpeg) |
 
 On first run `--build` compiles the image. Subsequent starts are fast:
 
@@ -263,7 +263,7 @@ Add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "semantic-multimodal": {
+    "multimodal_search": {
       "command": "python",
       "args": ["/absolute/path/to/mcp_server.py"]
     }

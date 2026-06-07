@@ -1,14 +1,14 @@
-# ── Stage: runtime ─────────────────────────────────────────────────────────
-# python:3.13-slim gives us a small Debian base.
-# We add FFmpeg and the two OpenCV shared-library deps (libgl1, libglib2.0-0)
-# that scenedetect needs when running headless (no display).
-FROM python:3.13-slim
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+
+# Set configurations for optimized container compilation
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Labels
-LABEL org.opencontainers.image.title="Semantic Video Search API"
+LABEL org.opencontainers.image.title="Multimodal Search API"
 LABEL org.opencontainers.image.description="FastAPI backend with FFmpeg, scenedetect, and Gemini AI"
 
-# ── System deps ─────────────────────────────────────────────────────────────
+# Add FFmpeg and the two OpenCV shared-library deps (libgl1, libglib2.0-0)
+# that scenedetect needs when running headless (no display).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     # OpenCV headless runtime (scenedetect uses cv2 under the hood)
@@ -21,26 +21,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Python env ──────────────────────────────────────────────────────────────
 WORKDIR /app
 
-# Copy dependency manifest first — Docker cache busts only when it changes
-COPY pyproject.toml ./
-
-# Install the package and all its dependencies
-# --no-cache-dir keeps the image lean
-RUN pip install --no-cache-dir -e .
+# Install dependencies (leverages Docker layer caching)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --no-dev
 
 # ── Application source ──────────────────────────────────────────────────────
 COPY . .
 
-# ── Runtime config ──────────────────────────────────────────────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app"
+
 EXPOSE 8000
 
-# Temp dir for video chunks & thumbnails (overrideable via compose volume)
-ENV TEMP_DIR=/tmp/svs_chunks
-RUN mkdir -p /tmp/svs_chunks
+ENV TEMP_DIR=/tmp/ms_chunks
+RUN mkdir -p /tmp/ms_chunks
 
 # Docker-native health check (also used by compose depends_on)
 HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=5 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # 2 workers is safe for most VM sizes — increase for higher concurrency needs
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["uv", "run", "uvicorn", "multimodal_search.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

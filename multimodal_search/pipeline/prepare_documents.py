@@ -1,9 +1,9 @@
 import os
 import time
 
-from config import settings
-from models import ContentMetadata, Embeddings, OpenSearchDocument
-from storage.storage_router import StorageRouter
+from multimodal_search.config import settings
+from multimodal_search.models import ContentMetadata, Embeddings, OpenSearchDocument
+from multimodal_search.storage.storage_router import StorageRouter
 
 
 def main():

@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
-from config import settings
-from models import OpenSearchDocument
+from multimodal_search.config import settings
+from multimodal_search.models import OpenSearchDocument
 
-from storage import StorageService
+from multimodal_search.storage import StorageService
 
 logger = logging.getLogger(__name__)
 

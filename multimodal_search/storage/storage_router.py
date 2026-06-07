@@ -1,9 +1,9 @@
 import logging
 from pathlib import Path
 
-from config import settings
+from multimodal_search.config import settings
 
-from storage import FileSystemService, RemoteStorageService, StorageService
+from multimodal_search.storage import FileSystemService, RemoteStorageService, StorageService
 
 logger = logging.getLogger("storage_router")
 

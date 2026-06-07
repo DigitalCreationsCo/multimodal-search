@@ -26,7 +26,7 @@ import pathlib
 import time
 from typing import List
 
-from config import Client, get_client, settings, types
+from multimodal_search.config import Client, get_client, settings, types
 
 logger = logging.getLogger(__name__)
 

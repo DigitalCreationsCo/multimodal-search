@@ -18,13 +18,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Optional
 
 import httpx
-from config import settings
+from multimodal_search.config import settings
 
-from pipeline.chunker import chunk_content
-from pipeline.embed import embed_chunk, embed_metadata, embed_transcript
-from pipeline.generate_metadata import generate_metadata, metadata_to_embed_string
-from pipeline.scene_detect import detect_scenes
-from pipeline.transcribe import transcribe
+from multimodal_search.pipeline.chunker import chunk_content
+from multimodal_search.pipeline.embed import embed_chunk, embed_metadata, embed_transcript
+from multimodal_search.pipeline.generate_metadata import generate_metadata, metadata_to_embed_string
+from multimodal_search.pipeline.scene_detect import detect_scenes
+from multimodal_search.pipeline.transcribe import transcribe
 
 logger = logging.getLogger(__name__)
 

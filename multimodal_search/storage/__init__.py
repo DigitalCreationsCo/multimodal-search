@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List
 
-from models import OpenSearchDocument
+from multimodal_search.models import OpenSearchDocument
 
 from .file_system_service import FileSystemService
 from .remote_storage_service import RemoteStorageService

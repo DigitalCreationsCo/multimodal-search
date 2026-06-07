@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     scene_threshold: float = 27.0
     min_scene_duration: float = 2.0
     max_scene_duration: float = 30.0
-    temp_dir: str = "/tmp/svs_chunks"
+    temp_dir: str = "/tmp/ms_chunks"
 
     # ── Pipeline ───────────────────────────────────────────────────
     max_parallel_chunks: int = 4
