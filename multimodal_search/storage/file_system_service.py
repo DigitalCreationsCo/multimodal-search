@@ -121,6 +121,3 @@ class FileSystemService(StorageService):
                 f"[Local] Root cause analysis: Failed to list directory {target_dir}. Error: {e}"
             )
             raise
-
-
-os.makedirs(settings.temp_dir, exist_ok=True)

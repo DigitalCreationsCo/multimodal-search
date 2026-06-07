@@ -15,6 +15,7 @@ import shutil
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
@@ -205,7 +206,9 @@ def start_ingest_from_url(url: str, name: str) -> str:
     Returns a job_id immediately (non-blocking).
     """
     job_id = str(uuid.uuid4())
-    temp_path = os.path.join(settings.temp_dir, f"{job_id}_source.mp4")
+    content_dir = Path(settings.local_storage_base_directory) / settings.content_directory
+    content_dir.mkdir(parents=True, exist_ok=True)
+    content_path = str(content_dir / f"{job_id}_source.mp4")
 
     _jobs[job_id] = {
         "job_id": job_id,
@@ -218,8 +221,8 @@ def start_ingest_from_url(url: str, name: str) -> str:
 
     def _run():
         try:
-            _download_content(url, temp_path)
-            run_ingest(job_id, temp_path, name, cleanup=True)
+            _download_content(url, content_path)
+            run_ingest(job_id, content_path, name, cleanup=True)
         except Exception as exc:
             _update_job(job_id, status="failed", error=str(exc))
 

@@ -17,6 +17,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List
 
 import structlog
@@ -218,7 +219,9 @@ async def ingest_file(file: UploadFile = File(...)):
     Returns immediately with a job_id; poll /ingest/{job_id} for progress.
     """
     job_id = str(uuid.uuid4())
-    dest = os.path.join(settings.temp_dir, f"{job_id}_{file.filename}")
+    content_dir = Path(settings.local_storage_base_directory) / settings.content_directory
+    content_dir.mkdir(parents=True, exist_ok=True)
+    dest = str(content_dir / f"{job_id}_{file.filename}")
 
     with open(dest, "wb") as f:
         content = await file.read()
