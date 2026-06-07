@@ -22,7 +22,7 @@ class FileSystemService(StorageService):
         self.embeddings_dir = self.base_dir / settings.embeddings_directory
         self.documents_dir = self.base_dir / settings.documents_directory
         self.content_dir = self.base_dir / settings.content_directory
-        self.staging_dir = self.base_dir / settings.temp_dir
+        self.staging_dir = self.base_dir / "staging"
 
         # Ensure directories exist
         try:
@@ -30,12 +30,13 @@ class FileSystemService(StorageService):
             self.embeddings_dir.mkdir(parents=True, exist_ok=True)
             self.documents_dir.mkdir(parents=True, exist_ok=True)
             self.content_dir.mkdir(parents=True, exist_ok=True)
+            self.staging_dir.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Local storage directories verified at {self.base_dir}")
         except Exception as e:
             logger.error(f"Failed to create local storage directories: {e}")
             raise
 
-    def fetch_media(self) -> Path:
+    def fetch_media(self) -> List[str]:
         # Assuming uri is a local path string
         return self.list_files(settings.content_directory)
 

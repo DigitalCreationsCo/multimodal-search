@@ -1,6 +1,5 @@
 import logging
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Dict, List
 
 from multimodal_search.models import OpenSearchDocument
@@ -18,7 +17,7 @@ class StorageService(ABC):
     """
 
     @abstractmethod
-    def fetch_media(self) -> Path:
+    def fetch_media(self) -> List[str]:
         pass
 
     @abstractmethod
