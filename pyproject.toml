@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    # Media download & URL resolution
+    "yt-dlp>=2024.12.0",
     # API
     "fastapi==0.115.5",
     "uvicorn[standard]==0.32.1",
@@ -26,12 +28,14 @@ dependencies = [
     "anyio>=4.8.0",
     "opensearch-py",
     "mcp>=1.27.2",
+    "opencv-python"
 ]
 
 [project.optional-dependencies]
 
 s3 = [
-    "boto3"
+    "boto3",
+    "botocore",
 ]
 
 [build-system]

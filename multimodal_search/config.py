@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # ── Google AI ──────────────────────────────────────────────────
     google_api_key: str
     gemini_embedding_model: str = "gemini-embedding-2"
-    gemini_flash_model: str = "gemini-2.0-flash-lite"
+    gemini_flash_model: str = "gemini-2.5-flash"
     embedding_dimension: int = 1024
 
     # ── OpenSearch ──────────────────────────────────────────────────
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
 
     # ── Pipeline ───────────────────────────────────────────────────
     max_parallel_chunks: int = 4
-    max_attempts: int = 3
+    max_attempts: int = 20
 
     # ── Search Weights ─────────────────────────────────────────────
     search_video_weight: float = 0.50

@@ -14,3 +14,13 @@ wheels/
 
 # Environment variables
 .env
+
+# IDE
+.cursor
+
+# Artifacts
+content/
+documents/
+embeddings/
+metadata/
+staging/

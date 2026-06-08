@@ -2,7 +2,7 @@ import logging
 import mimetypes
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class Utilities:
             raise
 
     @staticmethod
-    def determine_media_type(file_path: str) -> str:
+    def determine_media_type(file_path: str) -> Literal["video", "audio"]:
         """Accurately maps the file to 'video' or 'audio' to dictate the extraction pipeline."""
         mime_type, _ = mimetypes.guess_type(file_path)
 

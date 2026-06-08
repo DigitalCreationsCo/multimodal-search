@@ -11,7 +11,7 @@
                 --bg-dark: #0a0a0c;
                 --bg-light: #f59e0b;
                 --text: #e8e8f0;
-                --text-muted: #44445a;
+                --text-muted: #595975;
                 --text-on-light: #000;
                 --border: #2a2a38;
                 --border-hi: #3d3d52;
@@ -21,7 +21,7 @@
                 --font-sans:
                     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                     "Helvetica Neue", Arial, sans-serif;
-      --radius:       6px;
+                --radius: 6px;
                 --transition: 160ms cubic-bezier(0.4, 0, 0.2, 1);
             }
 
@@ -254,16 +254,16 @@
                 color: var(--text-muted);
                 margin-bottom: 6px;
             }
-    .progress-track {
-      height: 3px;
-      background: var(--bg-dark);
-      border-radius: var(--radius);
+            .progress-track {
+                height: 3px;
+                background: var(--bg-dark);
+                border-radius: var(--radius);
                 overflow: hidden;
             }
-    .progress-fill {
-      height: 100%;
-      background: var(--bg-light);
-      border-radius: var(--radius);
+            .progress-fill {
+                height: 100%;
+                background: var(--bg-light);
+                border-radius: var(--radius);
                 transition: width 500ms ease;
             }
             .progress-fill.complete {
@@ -451,40 +451,42 @@
                 background: var(--bg-dark);
             }
 
-    .result-timestamp {
-      position: absolute;
-      bottom: 8px;
-      right: 8px;
-      background: var(--bg-dark);
-      color: var(--text);
-      font-family: var(--font-sans);
-      font-size: 13px;
-      font-weight: 400;
-      padding: 2px 6px;
-      border-radius: var(--radius);
-    }
+            .result-timestamp {
+                position: absolute;
+                bottom: 8px;
+                right: 8px;
+                background: var(--bg-dark);
+                color: var(--text);
+                font-family: var(--font-sans);
+                font-size: 13px;
+                font-weight: 400;
+                padding: 2px 6px;
+                border-radius: var(--radius);
+            }
 
-    .score-badge {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      background: var(--bg-dark);
-      color: var(--text-muted);
-      font-family: var(--font-sans);
-      font-size: 13px;
-      font-weight: 400;
-      padding: 2px 7px;
-      border-radius: var(--radius);
-      transition: background var(--transition), color var(--transition);
-    }
-    .result-card:hover .score-badge {
-      background: var(--bg-light);
-      color: var(--text-on-light);
-    }
-    .score-badge.high {
-      background: var(--bg-light);
-      color: var(--text-on-light);
-    }
+            .score-badge {
+                position: absolute;
+                top: 8px;
+                left: 8px;
+                background: var(--bg-dark);
+                color: var(--text-muted);
+                font-family: var(--font-sans);
+                font-size: 13px;
+                font-weight: 400;
+                padding: 2px 7px;
+                border-radius: var(--radius);
+                transition:
+                    background var(--transition),
+                    color var(--transition);
+            }
+            .result-card:hover .score-badge {
+                background: var(--bg-light);
+                color: var(--text-on-light);
+            }
+            .score-badge.high {
+                background: var(--bg-light);
+                color: var(--text-on-light);
+            }
 
             .result-body {
                 padding: 12px 14px 14px;

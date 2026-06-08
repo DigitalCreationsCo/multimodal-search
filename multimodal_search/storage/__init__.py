@@ -4,9 +4,6 @@ from typing import Any, Dict, List
 
 from multimodal_search.models import OpenSearchDocument
 
-from .file_system_service import FileSystemService
-from .remote_storage_service import RemoteStorageService
-
 logger = logging.getLogger(__name__)
 
 
@@ -65,5 +62,9 @@ class StorageService(ABC):
         """
         pass
 
+
+# Deferred imports — subclasses need StorageService to be defined first.
+from .file_system_service import FileSystemService  # noqa: E402
+from .remote_storage_service import RemoteStorageService  # noqa: E402
 
 __all__ = ["StorageService", "FileSystemService", "RemoteStorageService"]

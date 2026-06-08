@@ -24,6 +24,7 @@ import pathlib
 import time
 
 from multimodal_search.config import get_client, settings
+from multimodal_search.pipeline._retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,8 @@ def transcribe(audio_path: str) -> str:
     """
     Transcribe a WAV audio file using Gemini Flash.
 
+    Retries with exponential backoff + jitter on failure.
+
     Args:
         audio_path: Path to a 16 kHz mono WAV file (from chunker.extract_audio).
 
@@ -63,49 +66,58 @@ def transcribe(audio_path: str) -> str:
         logger.warning("Audio file not found: %s", audio_path)
         return ""
 
-    client = get_client()
-    uploaded = None
+    def _attempt() -> str:
+        client = get_client()
+        uploaded = None
+        try:
+            uploaded = client.files.upload(
+                file=path,
+                config={"display_name": path.name, "mime_type": "audio/wav"},
+            )
+            _wait_for_file(client, uploaded.name)
+
+            from google.genai import types as gtypes
+
+            response = client.models.generate_content(
+                model=settings.gemini_flash_model,
+                contents=gtypes.Content(
+                    parts=[
+                        gtypes.Part(
+                            file_data=gtypes.FileData(
+                                file_uri=uploaded.uri,
+                                mime_type="audio/wav",
+                            )
+                        ),
+                        gtypes.Part(text=_TRANSCRIBE_PROMPT),
+                    ]
+                ),
+                config={
+                    "temperature": 0.0,
+                    "max_output_tokens": 1024,
+                },
+            )
+
+            text = (response.text or "").strip()
+            logger.debug("Transcript (%d chars): %s…", len(text), text[:80])
+            return text
+
+        finally:
+            if uploaded:
+                try:
+                    client.files.delete(name=uploaded.name)
+                except Exception:
+                    pass  # Non-critical cleanup
 
     try:
-        # Upload to Google Files API
-        uploaded = client.files.upload(
-            file=path,
-            config={"display_name": path.name, "mime_type": "audio/wav"},
+        return retry_with_backoff(
+            _attempt,
+            label=f"transcription {audio_path}",
         )
-        _wait_for_file(client, uploaded.name)
-
-        from google.genai import types as gtypes
-
-        response = client.models.generate_content(
-            model=settings.gemini_flash_model,
-            contents=gtypes.Content(
-                parts=[
-                    gtypes.Part(
-                        file_data=gtypes.FileData(
-                            file_uri=uploaded.uri,
-                            mime_type="audio/wav",
-                        )
-                    ),
-                    gtypes.Part(text=_TRANSCRIBE_PROMPT),
-                ]
-            ),
-            config={
-                "temperature": 0.0,
-                "max_output_tokens": 1024,
-            },
-        )
-
-        text = (response.text or "").strip()
-        logger.debug("Transcript (%d chars): %s…", len(text), text[:80])
-        return text
-
     except Exception as exc:
-        logger.warning("Transcription failed for %s: %s", audio_path, exc)
+        logger.warning(
+            "Transcription failed for %s after %d attempts: %s",
+            audio_path,
+            settings.max_attempts,
+            exc,
+        )
         return ""
-
-    finally:
-        if uploaded:
-            try:
-                client.files.delete(name=uploaded.name)
-            except Exception:
-                pass  # Non-critical cleanup

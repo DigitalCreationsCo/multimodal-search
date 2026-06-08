@@ -294,7 +294,7 @@ All settings live in `.env`. Docker Compose injects `QDRANT_URL` automatically â
 |----------|---------|--------|
 | `GOOGLE_API_KEY` | *(required)* | Google AI Studio or Vertex key |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Embedding model |
-| `GEMINI_FLASH_MODEL` | `gemini-2.0-flash-lite` | Transcription + metadata model |
+| `GEMINI_FLASH_MODEL` | `gemini-2.5-flash` | Transcription + metadata model |
 | `EMBEDDING_DIM` | `1024` | Matryoshka dim: 128 / 256 / 512 / **1024** / 2048 / 3072 |
 | `SCENE_THRESHOLD` | `27.0` | Lower = more scenes detected |
 | `MIN_SCENE_DURATION` | `2.0` | Seconds â€” merges flash cuts |

@@ -1,0 +1,13 @@
+[
+  {
+    "adapter": "Debugpy",
+    "label": "main.py (Debugpy)",
+    "request": "launch",
+    "subProcess": true,
+    "redirectOutput": true,
+    "program": "multimodal_search/main.py",
+    "args": [],
+    "stopOnEntry": false,
+    "cwd": "/Users/vibrantceo/Projects/multimodal-search",
+  },
+]

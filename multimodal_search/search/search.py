@@ -46,15 +46,86 @@ def get_opensearch_client() -> OpenSearch:
     Build an OpenSearch client from environment settings.
     Handles the self-signed TLS cert present in the Docker setup.
     """
+    import json
+    import time
+
     from multimodal_search.config import settings
 
-    return OpenSearch(
+    # #region agent log
+    _dbg_log = "/Users/vibrantceo/Projects/multimodal-search/.cursor/debug-0cb8c0.log"
+    _pwd = settings.opensearch_password or ""
+    try:
+        with open(_dbg_log, "a") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "0cb8c0",
+                        "runId": "pre-fix",
+                        "hypothesisId": "A,B,C,D",
+                        "location": "search.py:get_opensearch_client:config",
+                        "message": "OpenSearch client config resolved",
+                        "data": {
+                            "host": settings.opensearch_host,
+                            "port": settings.opensearch_port,
+                            "user": settings.opensearch_user,
+                            "password_len": len(_pwd),
+                            "password_ends_with_bang": _pwd.endswith("!"),
+                            "use_ssl": settings.opensearch_use_ssl,
+                            "verify_certs": settings.opensearch_verify_certs,
+                            "scheme": "https" if settings.opensearch_use_ssl else "http",
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        pass
+    # #endregion
+
+    client = OpenSearch(
         hosts=[{"host": settings.opensearch_host, "port": settings.opensearch_port}],
         http_auth=(settings.opensearch_user, settings.opensearch_password),
         use_ssl=settings.opensearch_use_ssl,
         verify_certs=settings.opensearch_verify_certs,
         ssl_show_warn=False,
     )
+
+    # #region agent log
+    try:
+        _health = client.cluster.health()
+        _probe_ok = True
+        _probe_status = _health.get("status")
+        _probe_err = None
+    except Exception as exc:
+        _probe_ok = False
+        _probe_status = None
+        _probe_err = f"{type(exc).__name__}: {exc}"
+    try:
+        with open(_dbg_log, "a") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "0cb8c0",
+                        "runId": "pre-fix",
+                        "hypothesisId": "A,C",
+                        "location": "search.py:get_opensearch_client:probe",
+                        "message": "OpenSearch cluster.health probe",
+                        "data": {
+                            "probe_ok": _probe_ok,
+                            "cluster_status": _probe_status,
+                            "error": _probe_err,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        pass
+    # #endregion
+
+    return client
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

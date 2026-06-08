@@ -4,12 +4,21 @@ from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
-import boto3
-from botocore.exceptions import ClientError
 from multimodal_search.config import settings
 from multimodal_search.models import OpenSearchDocument
-
 from multimodal_search.storage import StorageService
+
+# ── Optional S3 dependencies ────────────────────────────────────────────────────
+# boto3/botocore are declared under ``[project.optional-dependencies] s3``.
+# The guard below ensures this module can be imported even when those packages
+# are not installed, and produces a clear error at the point of use.
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+except ImportError:
+    _S3_DEPS_AVAILABLE = False
+else:
+    _S3_DEPS_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +27,12 @@ class RemoteStorageService(StorageService):
     """Handles cloud storage operations (S3, GCS, etc)."""
 
     def __init__(self, bucket_name: str, staging_dir: Path):
+        if not _S3_DEPS_AVAILABLE:
+            raise ImportError(
+                "The S3 storage backend requires boto3 and botocore. "
+                "Install the optional S3 dependencies with: "
+                "pip install 'multimodal-search[s3]'"
+            )
         self.bucket_name = bucket_name
         self.staging_dir = staging_dir
         self.s3_client = boto3.client("s3")

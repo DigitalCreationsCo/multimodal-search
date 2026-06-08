@@ -117,7 +117,7 @@ def extract_thumbnail(
 
 
 def extract_audio(
-    video_path: str,
+    content_path: str,
     output_path: str,
     start: float,
     end: float,
@@ -136,7 +136,7 @@ def extract_audio(
         "-ss",
         str(start),
         "-i",
-        video_path,
+        content_path,
         "-t",
         str(duration),
         "-vn",  # drop video stream

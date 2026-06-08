@@ -19,7 +19,7 @@ Every download is validated:
 import logging
 import os
 import re
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 import httpx
 import yt_dlp
@@ -33,9 +33,10 @@ logger = logging.getLogger(__name__)
 class ResolvedUrl(NamedTuple):
     """Result of resolving a user-provided URL to a downloadable media URL."""
 
-    url: str          # Direct media URL (downloadable via HTTP GET)
-    extension: str    # Suggested file extension, e.g. ".mp4"
-    title: str        # Human-readable title (empty string if unknown)
+    url: str  # Direct media URL (downloadable via HTTP GET)
+    extension: str  # Suggested file extension, e.g. ".mp4"
+    title: str  # Human-readable title (empty string if unknown)
+
 
 # ── Platform detection ─────────────────────────────────────────────────────────
 
@@ -209,7 +210,8 @@ def _is_media_content_type(content_type: str) -> bool:
     """Return True if the Content-Type looks like video, audio, or binary."""
     base = content_type.split(";")[0].strip().lower()
     return any(
-        base.startswith(prefix) for prefix in ("video/", "audio/", "application/octet-stream")
+        base.startswith(prefix)
+        for prefix in ("video/", "audio/", "application/octet-stream")
     )
 
 

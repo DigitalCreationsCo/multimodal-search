@@ -19,17 +19,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import httpx
 from multimodal_search.config import settings
-
 from multimodal_search.pipeline.chunker import chunk_content
-from multimodal_search.pipeline.embed import embed_chunk, embed_metadata, embed_transcript
-from multimodal_search.pipeline.generate_metadata import generate_metadata, metadata_to_embed_string
-from multimodal_search.pipeline.scene_detect import detect_scenes
+from multimodal_search.pipeline.downloader import download_content, resolve_url
+from multimodal_search.pipeline.embed import (
+    embed_chunk,
+    embed_metadata,
+    embed_transcript,
+)
+from multimodal_search.pipeline.generate_metadata import (
+    generate_metadata,
+    metadata_to_embed_string,
+)
+from multimodal_search.pipeline.scene_detect import detect_segments
 from multimodal_search.pipeline.transcribe import transcribe
 from multimodal_search.search.indexer import Indexer, build_document_from_results
 from multimodal_search.search.search import get_opensearch_client
 from multimodal_search.storage.storage_router import StorageRouter
+from multimodal_search.utilities import Utilities
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +69,6 @@ def _update_job(job_id: str, **kwargs) -> None:
     update_job(job_id, **kwargs)
 
 
-# ── Download helper ───────────────────────────────────────────────────────────
-
-
-def _download_content(url: str, dest_path: str) -> None:
-    """Download source content from *url* to *dest_path* with streaming."""
-    logger.info("Downloading video from %s", url)
-    with httpx.stream("GET", url, follow_redirects=True, timeout=300) as r:
-        r.raise_for_status()
-        with open(dest_path, "wb") as f:
-            for chunk in r.iter_bytes(chunk_size=1024 * 1024):
-                f.write(chunk)
-    logger.info("Download complete: %s", dest_path)
-
-
 # ── Per-chunk worker ──────────────────────────────────────────────────────────
 
 
@@ -105,7 +98,7 @@ def _process_chunk(chunk: dict, content_id: str, file_name: str) -> dict:
     metadata_string = metadata_to_embed_string(metadata)
 
     # Step 3: embeddings (video takes longest — do first while text embeds run)
-    video_vec = embed_chunk(chunk["content_path"])
+    video_vec = embed_chunk(chunk["video_path"])
     audio_vec = embed_transcript(transcript)
     text_vec = embed_metadata(metadata_string)
 
@@ -120,7 +113,7 @@ def _process_chunk(chunk: dict, content_id: str, file_name: str) -> dict:
         "summary": metadata.summary,
         "keywords": metadata.keywords,
         "mood": metadata.mood,
-        "has_speech": metadata.has_speech,
+        "has_speech": metadata.hasSpeech,
         "video_embedding": video_vec,
         "audio_embedding": audio_vec,
         "text_embedding": text_vec,
@@ -152,13 +145,17 @@ def run_ingest(
     try:
         _update_job(job_id, status="detecting_scenes", progress=5)
 
-        # 1. Scene detection
-        scenes = detect_scenes(content_path)
-        _update_job(job_id, scene_count=len(scenes), progress=15)
+        # 1. Segment Detection
+
+        media_type = Utilities.determine_media_type(content_path)
+
+        segments = detect_segments(content_path, media_type)
+
+        _update_job(job_id, scene_count=len(segments), progress=15)
 
         # 2. Chunking
         _update_job(job_id, status="chunking", progress=20)
-        chunks = chunk_content(content_path, scenes, job_id)
+        chunks = chunk_content(content_path, segments, job_id)
         _update_job(job_id, progress=30)
 
         # 3. Per-chunk processing (parallel)
@@ -214,7 +211,11 @@ def run_ingest(
 
         # Build and persist the full OpenSearch document JSON
         doc = build_document_from_results(
-            content_id, file_name, content_path, sorted_segs, storage,
+            content_id,
+            file_name,
+            content_path,
+            sorted_segs,
+            storage,
         )
         storage.write_documents(content_id, doc)
 
@@ -223,9 +224,7 @@ def run_ingest(
         indexer = Indexer(client, settings.index_name)
         result = indexer.index_document(doc)
         if not result.succeeded:
-            logger.error(
-                "Failed to index document %s: %s", content_id, result.error
-            )
+            logger.error("Failed to index document %s: %s", content_id, result.error)
 
         _update_job(
             job_id,
@@ -258,27 +257,41 @@ def run_ingest(
 
 def start_ingest_from_url(url: str, name: str) -> str:
     """
-    Download a file from *url* and kick off the ingest pipeline.
-    Returns a job_id immediately (non-blocking).
+    Resolve *url* to a direct media URL (using yt-dlp for YouTube/Vimeo, etc.),
+    download the media file with content validation, and kick off the ingest
+    pipeline.  Returns a job_id immediately (non-blocking).
+
+    The file extension is determined dynamically from the resolved media URL
+    rather than hardcoded to ``.mp4``.
     """
     job_id = str(uuid.uuid4())
-    content_dir = Path(settings.local_storage_base_directory) / settings.content_directory
+    content_dir = (
+        Path(settings.local_storage_base_directory) / settings.content_directory
+    )
     content_dir.mkdir(parents=True, exist_ok=True)
-    content_path = str(content_dir / f"{job_id}_source.mp4")
 
     create_job(
         job_id,
         file_name=name,
         source_url=url,
-        status="downloading",
+        status="resolving",
         progress=0,
         created_at=time.time(),
     )
 
     def _run():
         try:
-            _download_content(url, content_path)
-            run_ingest(job_id, content_path, name, cleanup=True)
+            # 1. Resolve platform URL → direct media URL (yt-dlp)
+            resolved = resolve_url(url)
+
+            # 2. Download with content validation
+            content_path = str(content_dir / f"{job_id}_source{resolved.extension}")
+            actual_path = download_content(resolved.url, content_path)
+
+            # 3. Use yt-dlp's title when available (it's more descriptive)
+            display_name = resolved.title or name
+
+            run_ingest(job_id, actual_path, display_name, cleanup=True)
         except Exception as exc:
             _update_job(job_id, status="failed", error=str(exc))
 
