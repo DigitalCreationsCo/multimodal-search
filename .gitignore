@@ -17,6 +17,7 @@ wheels/
 
 # IDE
 .cursor
+.zed
 
 # Artifacts
 content/
