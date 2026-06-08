@@ -1,6 +1,6 @@
 # Semantic Video & Audio Search — Production Prototype
 
-A cost-effective, production-ready semantic multimedia search system. Every service — including FFmpeg — runs in Docker with a single command.
+A cost-effective, production-ready semantic video search system. Every service — including FFmpeg — runs in Docker with a single command.
 
 | Component | Technology | Notes |
 |-----------|-----------|-------|

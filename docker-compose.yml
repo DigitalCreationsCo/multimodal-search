@@ -14,6 +14,24 @@ version: "3.9"
 #       The api service will wait via depends_on: condition: service_healthy.
 # ────────────────────────────────────────────────────────────────────────────
 
+# ── Semantic Video Search — full stack ──────────────────────────────────────
+#
+# Services:
+#   opensearch           — vector + text search engine   (ports 9200, 9600)
+#   opensearch-dashboards — data exploration UI           (port  5601)
+#   api                  — FastAPI + FFmpeg + Gemini      (port  8000)
+#
+# Start everything:
+#   docker compose up --build
+#
+# OpenSearch Dashboards:   http://localhost:5601  (admin / <your password>)
+# FastAPI docs:            http://localhost:8000/docs
+# Your custom search UI:   open frontend/index.html in browser
+#
+# NOTE: OpenSearch takes 45-60 s to initialise on first boot.
+#       The api service will wait via depends_on: condition: service_healthy.
+# ────────────────────────────────────────────────────────────────────────────
+
 services:
   opensearch:
     container_name: opensearch

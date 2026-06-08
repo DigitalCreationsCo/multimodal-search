@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     index_number_of_shards: int = 1
     index_number_of_replicas: int = 0
 
+    # ── Qdrant ─────────────────────────────────────────────────────
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: Optional[str] = None
+    collection_name: str = "video_segments"
+
     # ── Scene Detection ────────────────────────────────────────────
     scene_threshold: float = 27.0
     min_scene_duration: float = 2.0
@@ -54,7 +59,7 @@ class Settings(BaseSettings):
 
     # ── Pipeline ───────────────────────────────────────────────────
     max_parallel_chunks: int = 4
-    max_attempts: int = 20
+    max_attempts: int = 10
 
     # ── Search Weights ─────────────────────────────────────────────
     search_video_weight: float = 0.50
